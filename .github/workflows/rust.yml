@@ -1,0 +1,27 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        day: ["01","02","03","04"]
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build
+      working-directory: ${{ matrix.day }}
+      run: cargo build --verbose
+    - name: Samples
+      working-directory: ${{ matrix.day }}
+      run: cargo test --verbose
