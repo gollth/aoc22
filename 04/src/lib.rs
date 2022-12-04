@@ -29,6 +29,15 @@ pub fn amount_of_fully_overlapping_search_assigments(input: &String) -> usize {
         .count()
 }
 
+pub fn amount_of_partially_overlapping_search_assigments(input: &String) -> usize {
+    input
+        .lines()
+        .flat_map(pair)
+        .map(|(_, x)| x)
+        .filter(|(a, b)| !a.is_disjoint(&b))
+        .count()
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -38,6 +47,16 @@ mod tests {
     fn sample_a() -> std::io::Result<()> {
         let content = std::fs::read_to_string("sample.txt")?;
         assert_eq!(amount_of_fully_overlapping_search_assigments(&content), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn sample_b() -> std::io::Result<()> {
+        let content = std::fs::read_to_string("sample.txt")?;
+        assert_eq!(
+            amount_of_partially_overlapping_search_assigments(&content),
+            4
+        );
         Ok(())
     }
 }
