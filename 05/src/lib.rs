@@ -10,11 +10,12 @@ use nom::{
 type Stack<A> = Vec<A>;
 
 #[derive(Debug, PartialEq, Eq)]
-struct Ship {
+pub struct Ship {
     stacks: Vec<Stack<char>>,
 }
+
 #[derive(Debug, PartialEq, Eq)]
-struct Instruction {
+pub struct Instruction {
     amount: usize,
     src: usize,
     dest: usize,
@@ -65,13 +66,23 @@ impl Display for ElfError {
 impl Error for ElfError {}
 
 impl Ship {
-    pub fn apply(&mut self, instruction: &Instruction) -> Result<(), ElfError> {
+    pub fn crate_mover9000(&mut self, instruction: &Instruction) -> Result<(), ElfError> {
         for _ in 0..instruction.amount {
             let crate_ = self.stacks[instruction.src - 1]
                 .pop()
                 .ok_or(ElfError::CannotExecuteInstructionBecauseStackAlreadyEmpty)?;
             self.stacks[instruction.dest - 1].push(crate_);
         }
+        Ok(())
+    }
+    pub fn crate_mover9001(&mut self, instruction: &Instruction) -> Result<(), ElfError> {
+        let end = self.stacks[instruction.src - 1].len();
+        let mut buffer = self.stacks[instruction.src - 1].split_off(end - instruction.amount);
+        if buffer.is_empty() {
+            return Err(ElfError::CannotExecuteInstructionBecauseStackAlreadyEmpty);
+        }
+        self.stacks[instruction.dest - 1].append(&mut buffer);
+
         Ok(())
     }
 }
@@ -156,14 +167,22 @@ fn split_input(content: &str) -> Result<(String, String), ElfError> {
     Ok((a.to_string(), b.to_string()))
 }
 
-pub fn find_rearanged_top_of_stacks(file: &str) -> Result<Vec<char>, Box<dyn Error>> {
+pub fn find_rearanged_top_of_stacks<F>(file: &str, f: F) -> Result<Vec<char>, Box<dyn Error>>
+where
+    F: Fn(&mut Ship, &Instruction) -> Result<(), ElfError>,
+{
     let content = read_to_string(file)?;
     let (a, b) = split_input(&content)?;
     let mut ship = Ship::from_str(&a)?;
 
-    for instruction in b.lines().flat_map(Instruction::from_str) {
-        ship.apply(&instruction)?;
-    }
+    b.lines()
+        .map(Instruction::from_str)
+        .map(|i| i.and_then(|i| f(&mut ship, &i)))
+        .collect::<Result<Vec<_>, _>>()?;
+    // for instruction in b.lines().flat_map(Instruction::from_str) {
+    //     f(&instruction
+    //     // ship.crate_mover9000(&instruction)?;
+    // }
     println!("{}", ship);
 
     Ok(ship
@@ -179,11 +198,15 @@ mod tests {
 
     use super::*;
 
-    fn test_sample_a_after_step(
+    fn test_sample_after_step<F>(
         n: usize,
         current_ship_file: &str,
         expected_ship_file: &str,
-    ) -> Result<(), Box<dyn Error>> {
+        f: F,
+    ) -> Result<(), Box<dyn Error>>
+    where
+        F: Fn(&mut Ship, &Instruction) -> Result<(), ElfError>,
+    {
         let instructions = split_input(&read_to_string("sample.txt")?)?
             .1
             .lines()
@@ -192,7 +215,7 @@ mod tests {
 
         let expected = Ship::from_str(&std::fs::read_to_string(expected_ship_file)?)?;
         let mut ship = Ship::from_str(&std::fs::read_to_string(current_ship_file)?)?;
-        ship.apply(&instructions[n - 1])?;
+        f(&mut ship, &instructions[n - 1])?;
 
         assert_eq!(ship, expected);
         Ok(())
@@ -200,29 +223,58 @@ mod tests {
 
     #[test]
     fn sample_a_after_step_1() -> Result<(), Box<dyn Error>> {
-        test_sample_a_after_step(1, "ship0.txt", "ship1.txt")
+        test_sample_after_step(1, "ship0.txt", "ship1.txt", Ship::crate_mover9000)
     }
 
     #[test]
     fn sample_a_after_step_2() -> Result<(), Box<dyn Error>> {
-        test_sample_a_after_step(2, "ship1.txt", "ship2.txt")
+        test_sample_after_step(2, "ship1.txt", "ship2.txt", Ship::crate_mover9000)
     }
 
     #[test]
     fn sample_a_after_step_3() -> Result<(), Box<dyn Error>> {
-        test_sample_a_after_step(3, "ship2.txt", "ship3.txt")
+        test_sample_after_step(3, "ship2.txt", "ship3.txt", Ship::crate_mover9000)
     }
 
     #[test]
     fn sample_a_after_step_4() -> Result<(), Box<dyn Error>> {
-        test_sample_a_after_step(4, "ship3.txt", "ship4.txt")
+        test_sample_after_step(4, "ship3.txt", "ship4.txt", Ship::crate_mover9000)
     }
 
     #[test]
     fn sample_a() -> Result<(), Box<dyn Error>> {
         assert_eq!(
-            find_rearanged_top_of_stacks("sample.txt")?,
+            find_rearanged_top_of_stacks("sample.txt", Ship::crate_mover9000)?,
             &['C', 'M', 'Z']
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn sample_b_after_step_1() -> Result<(), Box<dyn Error>> {
+        test_sample_after_step(1, "ship0.txt", "ship1.b.txt", Ship::crate_mover9001)
+    }
+
+    #[test]
+    fn sample_b_after_step_2() -> Result<(), Box<dyn Error>> {
+        test_sample_after_step(2, "ship1.b.txt", "ship2.b.txt", Ship::crate_mover9001)
+    }
+
+    #[test]
+    fn sample_b_after_step_3() -> Result<(), Box<dyn Error>> {
+        test_sample_after_step(3, "ship2.b.txt", "ship3.b.txt", Ship::crate_mover9001)
+    }
+
+    #[test]
+    fn sample_b_after_step_4() -> Result<(), Box<dyn Error>> {
+        test_sample_after_step(4, "ship3.b.txt", "ship4.b.txt", Ship::crate_mover9001)
+    }
+
+    #[test]
+    fn sample_b() -> Result<(), Box<dyn Error>> {
+        assert_eq!(
+            find_rearanged_top_of_stacks("sample.txt", Ship::crate_mover9001)?,
+            &['M', 'C', 'D']
         );
         Ok(())
     }
