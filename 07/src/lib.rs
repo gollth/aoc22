@@ -31,6 +31,7 @@ pub enum SeventhError {
     InvalidFileSize(String),
     DirectoryDoesNotExist(String),
     RootDirectoryHasNoParent,
+    NoCandidateFound,
 }
 impl Error for SeventhError {}
 impl Display for SeventhError {
@@ -184,20 +185,26 @@ impl FileSystem {
         self.root.borrow().size()
     }
 
-    pub fn folders_with_size_below(&self, max_size: usize) -> Vec<(String, usize)> {
-        fn walker(path: &FileEntry, max_size: usize) -> Vec<(String, usize)> {
+    pub fn folders_with<F>(&self, predicate: F) -> Vec<(String, usize)>
+    where
+        F: Fn(usize) -> bool,
+    {
+        fn walker<F>(path: &FileEntry, predicate: &F) -> Vec<(String, usize)>
+        where
+            F: Fn(usize) -> bool,
+        {
             let mut dirs = Vec::new();
             let s = path.size();
-            if path.file_type == FileType::Directory && s <= max_size {
+            if path.file_type == FileType::Directory && predicate(s) {
                 dirs.push((path.name.to_owned(), s));
             }
             for item in path.items.iter() {
-                dirs.append(&mut walker(&item.borrow(), max_size));
+                dirs.append(&mut walker(&item.borrow(), predicate));
             }
             dirs
         }
 
-        walker(&self.root.borrow(), max_size)
+        walker(&self.root.borrow(), &predicate)
     }
 }
 
@@ -396,8 +403,22 @@ mod tests {
     #[test]
     fn sample_b() -> Result<(), Box<dyn Error>> {
         let fs = FileSystem::new("sample.txt")?;
-        println!("{}", fs);
-        assert!(false);
+        let total_fs_size = 70_000_000;
+        let required_free_space = 30_000_000;
+
+        let free_space = total_fs_size - fs.disk_usage();
+        assert_eq!(free_space, 21_618_835);
+
+        let min_space_to_free = required_free_space - free_space;
+        assert_eq!(min_space_to_free, 8_381_165);
+
+        let mut candiates = fs.folders_with(|size| size >= min_space_to_free);
+        candiates.sort_by_key(|(_, size)| *size);
+
+        assert_eq!(
+            candiates,
+            vec![("d".to_owned(), 24933642), ("".to_owned(), 48381165)]
+        );
         Ok(())
     }
 
@@ -411,7 +432,7 @@ mod tests {
     #[test]
     fn sample_a_dirs_with_max_100_000_bytes() -> Result<(), Box<dyn Error>> {
         let fs = FileSystem::new("sample.txt")?;
-        let dirs = fs.folders_with_size_below(100_000);
+        let dirs = fs.folders_with(|size| size <= 100_000);
         assert_eq!(dirs, vec![("a".to_owned(), 94853), ("e".to_owned(), 584)]);
         assert_eq!(dirs.iter().map(|(_, s)| s).sum::<usize>(), 95437);
 
