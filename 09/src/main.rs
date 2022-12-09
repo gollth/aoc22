@@ -22,6 +22,10 @@ struct Options {
     /// Should the simulation be visualized in terminal?
     #[clap(long, action)]
     visualize: bool,
+
+    /// Amount of knots in the rope (1 for part A, 10 for part B)
+    #[clap(short, long, default_value = "1")]
+    knots: usize,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -29,7 +33,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let cmds = parse_input(&std::fs::read_to_string(args.file)?)?;
 
     let sleep_time = Duration::from_secs_f32(1. / args.frequency);
-    let mut rope = Rope::default();
+    let mut rope = Rope::new(args.knots);
     for cmd in cmds {
         for _ in 0i32..cmd.into() {
             if args.visualize {

@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use std::{
     collections::HashSet,
     fmt::{Display, Formatter},
@@ -7,18 +8,14 @@ use crate::{Coord, Direction};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Rope {
-    pub head: Coord,
-    pub tail: Coord,
+    head: Coord,
+    tails: Vec<Coord>,
     pub visited_positions: HashSet<Coord>,
 }
 
 impl Default for Rope {
     fn default() -> Self {
-        Self {
-            head: Coord::default(),
-            tail: Coord::default(),
-            visited_positions: HashSet::from_iter([Coord::default()]),
-        }
+        Self::new(2)
     }
 }
 
@@ -31,7 +28,7 @@ impl Display for Rope {
             .min()
             .unwrap_or_default()
             .min(self.head.x)
-            .min(self.tail.x);
+            .min(self.tails.iter().map(|t| t.x).min().unwrap_or(0));
         let right = self
             .visited_positions
             .iter()
@@ -39,7 +36,7 @@ impl Display for Rope {
             .max()
             .unwrap_or_default()
             .max(self.head.x)
-            .max(self.tail.x)
+            .max(self.tails.iter().map(|t| t.x).max().unwrap_or(0))
             .max(1);
         let bottom = self
             .visited_positions
@@ -48,7 +45,7 @@ impl Display for Rope {
             .min()
             .unwrap_or_default()
             .min(self.head.y)
-            .min(self.tail.y);
+            .min(self.tails.iter().map(|t| t.y).min().unwrap_or(0));
         let top = self
             .visited_positions
             .iter()
@@ -56,7 +53,7 @@ impl Display for Rope {
             .max()
             .unwrap_or_default()
             .max(self.head.y)
-            .max(self.tail.y)
+            .max(self.tails.iter().map(|t| t.y).max().unwrap_or(0))
             .max(1);
 
         write!(f, "╭")?;
@@ -68,12 +65,13 @@ impl Display for Rope {
             write!(f, "│")?;
             for i in left..=right {
                 let c = Coord::new(i, j);
-                if c == self.head && c == self.tail {
-                    write!(f, "⊕")?;
+                let c_on_tail = self.tails.iter().enumerate().find(|(_, t)| **t == c);
+                if c == self.head && c_on_tail.is_some() {
+                    write!(f, "●")?;
                 } else if c == self.head {
                     write!(f, "○")?;
-                } else if c == self.tail {
-                    write!(f, "+")?;
+                } else if let Some((i, _)) = c_on_tail {
+                    write!(f, "{}", i + 1)?;
                 } else if self.visited_positions.contains(&c) {
                     write!(f, "•")?;
                 } else {
@@ -92,8 +90,16 @@ impl Display for Rope {
 }
 
 impl Rope {
-    pub fn pull_tail(&mut self) {
-        let spring = self.head - self.tail;
+    pub fn new(knots: usize) -> Self {
+        Self {
+            head: Coord::default(),
+            tails: vec![Coord::default(); knots - 1],
+            visited_positions: HashSet::from_iter([Coord::default()]),
+        }
+    }
+
+    pub fn pull(&mut self, head: Coord, i: usize) {
+        let spring = head - self.tails[i];
         let distance = spring.x.abs() + spring.y.abs();
         if distance <= 1 {
             // head & tail are touching, do nothing
@@ -101,7 +107,7 @@ impl Rope {
         }
         if distance == 2 && (spring.x == 0 || spring.y == 0) {
             // head is exactly two steps directly up, down, left or right from tail
-            self.tail += spring.clamp(-Direction::one(), Direction::one());
+            self.tails[i] += spring.clamp(-Direction::one(), Direction::one());
             return;
         }
         if distance == 2 && spring.x != 0 && spring.y != 0 {
@@ -110,12 +116,21 @@ impl Rope {
         }
 
         // Head and tail are not touching and are offset diagonally
-        self.tail += spring.clamp(-Direction::one(), Direction::one());
+        self.tails[i] += spring.clamp(-Direction::one(), Direction::one());
     }
 
     pub fn step(&mut self, dir: Direction) {
-        self.head += dir;
-        self.pull_tail();
-        self.visited_positions.insert(self.tail);
+        self.head += dir; // move head
+
+        // Pull first tail
+        self.pull(self.head, 0);
+
+        // If there exist further tails, pull them also
+        if self.tails.len() > 1 {
+            for (a, b) in (0..self.tails.len()).tuple_windows() {
+                self.pull(self.tails[a], b);
+            }
+        }
+        self.visited_positions.insert(*self.tails.last().unwrap());
     }
 }

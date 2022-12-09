@@ -40,22 +40,37 @@ mod tests {
         Ok(parse_input(&std::fs::read_to_string(file)?)?)
     }
 
-    #[test]
-    fn sample_a() -> Result<(), Box<dyn Error>> {
-        let cmds = read_commands("sample.txt")?;
+    fn simulate(file: &str, knots: usize) -> Result<Rope, Box<dyn Error>> {
+        let cmds = read_commands(file)?;
 
-        let mut rope = Rope::default();
+        let mut rope = Rope::new(knots);
         for cmd in cmds {
             for _ in 0i32..cmd.into() {
                 rope.step(cmd.into());
             }
         }
         println!("{}", rope);
+        Ok(rope)
+    }
 
-        assert_eq!(rope.head, Coord::new(2, 2));
-        assert_eq!(rope.tail, Coord::new(1, 2));
+    #[test]
+    fn sample_a() -> Result<(), Box<dyn Error>> {
+        let rope = simulate("sample.txt", 2)?;
         assert_eq!(rope.visited_positions.len(), 13);
+        Ok(())
+    }
 
+    #[test]
+    fn sample_b() -> Result<(), Box<dyn Error>> {
+        let rope = simulate("sample.txt", 10)?;
+        assert_eq!(rope.visited_positions.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn sample_b_bigger() -> Result<(), Box<dyn Error>> {
+        let rope = simulate("sample-big.txt", 10)?;
+        assert_eq!(rope.visited_positions.len(), 36);
         Ok(())
     }
 }
