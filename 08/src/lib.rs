@@ -1,5 +1,7 @@
+use itertools::Itertools;
 use ndarray::prelude::*;
 use std::{
+    collections::HashMap,
     error::Error,
     fmt::{Display, Formatter},
     num::ParseIntError,
@@ -51,26 +53,27 @@ pub fn parse_forest(content: &str) -> Result<Forest, EigthError> {
 
 const NOT_VISIBLE: i8 = -1;
 
-const N: (isize, isize) = (0, -1);
-const S: (isize, isize) = (0, 1);
-const E: (isize, isize) = (1, 0);
-const W: (isize, isize) = (-1, 0);
+type Direction = (isize, isize);
+const W: Direction = (0, -1);
+const E: Direction = (0, 1);
+const S: Direction = (1, 0);
+const N: Direction = (-1, 0);
 
 pub fn visible_trees(forest: &Forest) -> Forest {
     let dim = forest.shape()[0]; // square
     let idim = dim as isize;
 
-    let rays = vec![N, S, E, W]
+    let rays = vec![W, E, S, N]
         .iter()
         .map(|dir| {
             (1..(dim - 1)).map(|i| {
                 (
                     arr1(&[dir.0, dir.1]),
                     Coord::from_iter(match *dir {
-                        N => [i as isize, idim - 2],
-                        S => [i as isize, 1],
-                        E => [1, i as isize],
-                        W => [idim - 2, i as isize],
+                        W => [i as isize, idim - 2],
+                        E => [i as isize, 1],
+                        S => [1, i as isize],
+                        N => [idim - 2, i as isize],
                         _ => unreachable!(),
                     }),
                 )
@@ -122,22 +125,85 @@ pub fn count_visible(visibile_trees: &VisibilityGrid) -> usize {
         .count()
 }
 
+pub fn scenic_score(forest: &Forest, coord: (usize, usize)) -> HashMap<Direction, u32> {
+    let c = arr1(&[coord.0 as isize, coord.1 as isize]);
+    let height = forest[coord];
+
+    let mut view = HashMap::new();
+
+    // Raycast in all four directions
+    for direction in [N, S, E, W] {
+        let dir = arr1(&[direction.0, direction.1]);
+
+        let mut i = 1isize;
+        while let Some(tree) = index(&c, i * &dir).and_then(|ix| forest.get(ix)) {
+            *view.entry(direction).or_default() += 1;
+            if *tree >= height {
+                break;
+            }
+            i += 1;
+        }
+    }
+
+    view
+}
+
+pub fn find_most_scenic_place(forest: &Forest) -> Option<((usize, usize), u32)> {
+    let dim = forest.shape()[0];
+
+    // Edges will have scenic scores of 0, so don't even consider them
+    (1..(dim - 1))
+        .cartesian_product(1..(dim - 1))
+        .map(|coord| (coord, scenic_score(forest, coord).into_values().product()))
+        .max_by_key(|(_, score)| *score)
+}
+
 #[cfg(test)]
 mod tests {
 
     use super::*;
 
+    fn read_forest(file: &str) -> Result<Forest, Box<dyn Error>> {
+        let content = std::fs::read_to_string(file)?;
+        Ok(parse_forest(&content)?)
+    }
+
     #[test]
     fn sample_a() -> Result<(), Box<dyn Error>> {
-        let content = std::fs::read_to_string("sample.txt")?;
-
-        let forest = parse_forest(&content)?;
+        let forest = read_forest("sample.txt")?;
         assert_eq!(forest.shape(), [5, 5]);
 
         let visible_trees = visible_trees(&forest);
         assert_eq!(visible_trees.shape(), [5, 5]);
         assert_eq!(count_visible(&visible_trees), 21);
 
+        Ok(())
+    }
+
+    #[test]
+    fn sample_b_suboptimal_scenic_view() -> Result<(), Box<dyn Error>> {
+        let forest = read_forest("sample.txt")?;
+        let scores = scenic_score(&forest, (1, 2));
+        assert_eq!(scores.get(&N), Some(&1));
+        assert_eq!(scores.get(&W), Some(&1));
+        assert_eq!(scores.get(&E), Some(&2));
+        assert_eq!(scores.get(&S), Some(&2));
+        Ok(())
+    }
+
+    #[test]
+    fn sample_b_optimal_scenic_view() -> Result<(), Box<dyn Error>> {
+        let forest = read_forest("sample.txt")?;
+        let scores = scenic_score(&forest, (3, 2));
+        assert_eq!(scores.get(&N), Some(&2));
+        assert_eq!(scores.get(&W), Some(&2));
+        Ok(())
+    }
+
+    #[test]
+    fn sample_b() -> Result<(), Box<dyn Error>> {
+        let forest = read_forest("sample.txt")?;
+        assert_eq!(find_most_scenic_place(&forest), Some(((3, 2), 8)));
         Ok(())
     }
 }
