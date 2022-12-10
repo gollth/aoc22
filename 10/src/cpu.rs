@@ -1,4 +1,4 @@
-use crate::instruction::Instruction;
+use crate::{crt::Screen, instruction::Instruction};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Cpu {
@@ -19,23 +19,21 @@ impl Default for Cpu {
 }
 
 impl Cpu {
-    fn tick(&mut self) {
+    fn tick(&mut self, screen: &mut Screen) {
+        screen.tick();
         self.cycles += 1;
         if (self.cycles - 20) % 40 == 0 {
             self.signal_strength += self.cycles as i32 * self.x;
-            println!(
-                "#{:05}: Signal Strength = {}",
-                self.cycles, self.signal_strength
-            );
         }
     }
 
-    pub fn execute(&mut self, instruction: &Instruction) {
+    pub fn execute(&mut self, instruction: &Instruction, screen: &mut Screen) {
+        screen.sprite = self.x;
         match instruction {
-            &Instruction::Noop => self.tick(),
+            &Instruction::Noop => self.tick(screen),
             &Instruction::AddX(n) => {
-                self.tick();
-                self.tick();
+                self.tick(screen);
+                self.tick(screen);
                 self.x += n;
             }
         }
@@ -57,15 +55,16 @@ mod tests {
     #[test]
     fn a_little_sample() {
         let mut cpu = Cpu::default();
-        cpu.execute(&Instruction::Noop);
+        let mut screen = Screen::default();
+        cpu.execute(&Instruction::Noop, &mut screen);
         assert_eq!(cpu.x, 1);
         assert_eq!(cpu.cycles, 1);
 
-        cpu.execute(&Instruction::AddX(3));
+        cpu.execute(&Instruction::AddX(3), &mut screen);
         assert_eq!(cpu.x, 4);
         assert_eq!(cpu.cycles, 3);
 
-        cpu.execute(&Instruction::AddX(-5));
+        cpu.execute(&Instruction::AddX(-5), &mut screen);
         assert_eq!(cpu.x, -1);
         assert_eq!(cpu.cycles, 5);
     }
@@ -75,7 +74,7 @@ mod tests {
         let content = std::fs::read_to_string("sample.txt")?;
         let mut cpu = Cpu::default();
         for instruction in content.lines().map(Instruction::from_str) {
-            cpu.execute(&instruction?);
+            cpu.execute(&instruction?, &mut Screen::default());
         }
         assert_eq!(cpu.signal_strength, 13140);
         Ok(())

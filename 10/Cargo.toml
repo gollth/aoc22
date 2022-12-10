@@ -5,3 +5,5 @@ edition = "2021"
 
 [dependencies]
 nom = "7.1.1"
+ndarray = "0.15.6"
+clap = { version = "4.0.29", features= ["derive"] }
