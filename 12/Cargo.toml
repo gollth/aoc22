@@ -1,0 +1,10 @@
+[package]
+name = "twelfth"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.0.29", features= ["derive"] }
+euclid = "0.22.7"
+termion = "2.0.1"
+colors-transform = "0.2.11"
