@@ -6,19 +6,23 @@ use std::{
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{multispace0, multispace1, newline, u32},
+    character::complete::{multispace0, multispace1, newline, u128, u32},
     multi::separated_list0,
     Finish, IResult,
 };
 
 use crate::EleventhError;
 
+pub type Item = u128;
+
 pub struct Monkey {
     id: u32,
-    items: VecDeque<u32>,
-    operation: Box<dyn Fn(u32) -> u32>,
-    test: Box<dyn Fn(u32) -> u32>,
-    inspections: u32,
+    items: VecDeque<Item>,
+    operation: Box<dyn Fn(Item) -> Item>,
+    modulo: u128,
+    true_monkey: u32,
+    false_monkey: u32,
+    inspections: u64,
 }
 
 impl Monkey {
@@ -26,23 +30,31 @@ impl Monkey {
         self.id
     }
 
-    pub fn inspections(&self) -> u32 {
+    pub fn inspections(&self) -> u64 {
         self.inspections
     }
 
-    pub fn operation(&self, x: u32) -> u32 {
+    pub fn operation(&self, x: Item) -> Item {
         (self.operation)(x)
     }
 
-    pub fn items(&self) -> VecDeque<u32> {
+    pub fn items(&self) -> VecDeque<Item> {
         self.items.clone()
     }
 
-    pub fn test(&self, x: u32) -> u32 {
-        (self.test)(x)
+    pub fn test(&self, x: Item) -> u32 {
+        if x % self.modulo == 0 {
+            self.true_monkey
+        } else {
+            self.false_monkey
+        }
     }
 
-    pub fn inspect(&mut self) -> Option<u32> {
+    pub fn modulo(&self) -> u128 {
+        self.modulo
+    }
+
+    pub fn inspect(&mut self) -> Option<Item> {
         let item = self.items.pop_front();
         if item.is_some() {
             self.inspections += 1;
@@ -50,7 +62,7 @@ impl Monkey {
         item
     }
 
-    pub fn catch(&mut self, item: u32) {
+    pub fn catch(&mut self, item: Item) {
         self.items.push_back(item)
     }
 }
@@ -61,45 +73,29 @@ impl Debug for Monkey {
     }
 }
 
-fn parse_addition(s: &str) -> IResult<&str, Box<dyn Fn(u32) -> u32>> {
+fn parse_addition(s: &str) -> IResult<&str, Box<dyn Fn(Item) -> Item>> {
     let (s, _) = tag("+")(s)?;
     let (s, _) = multispace0(s)?;
     if let Ok((s, _)) = tag::<_, _, (_, _)>("old")(s) {
         return Ok((s, Box::new(move |x| x + x)));
     }
-    let (s, y) = u32(s)?;
+    let (s, y) = u128(s)?;
     Ok((s, Box::new(move |x| x + y)))
 }
-fn parse_multiplication(s: &str) -> IResult<&str, Box<dyn Fn(u32) -> u32>> {
+fn parse_multiplication(s: &str) -> IResult<&str, Box<dyn Fn(Item) -> Item>> {
     let (s, _) = tag("*")(s)?;
     let (s, _) = multispace0(s)?;
     if let Ok((s, _)) = tag::<_, _, (_, _)>("old")(s) {
         return Ok((s, Box::new(move |x| x * x)));
     }
-    let (s, y) = u32(s)?;
+    let (s, y) = u128(s)?;
     Ok((s, Box::new(move |x| x * y)))
 }
 
-fn parse_function(s: &str) -> IResult<&str, Box<dyn Fn(u32) -> u32>> {
+fn parse_function(s: &str) -> IResult<&str, Box<dyn Fn(Item) -> Item>> {
     let (s, _) = tag("new = old ")(s)?;
     let (s, operation) = alt((parse_addition, parse_multiplication))(s)?;
     Ok((s, operation))
-}
-
-fn parse_predicate(s: &str) -> IResult<&str, Box<dyn Fn(u32) -> u32>> {
-    let (s, _) = tag("divisible by ")(s)?;
-    let (s, div) = u32(s)?;
-    let (s, _) = newline(s)?;
-    let (s, _) = multispace1(s)?;
-
-    let (s, _) = tag("If true: throw to monkey ")(s)?;
-    let (s, t) = u32(s)?;
-    let (s, _) = newline(s)?;
-    let (s, _) = multispace1(s)?;
-
-    let (s, _) = tag("If false: throw to monkey ")(s)?;
-    let (s, f) = u32(s)?;
-    Ok((s, Box::new(move |x| if x % div == 0 { t } else { f })))
 }
 
 fn parse_monkey(s: &str) -> IResult<&str, Monkey> {
@@ -110,7 +106,7 @@ fn parse_monkey(s: &str) -> IResult<&str, Monkey> {
 
     let (s, _) = multispace1(s)?;
     let (s, _) = tag("Starting items: ")(s)?;
-    let (s, items) = separated_list0(tag(", "), u32)(s)?;
+    let (s, items) = separated_list0(tag(", "), u128)(s)?;
     let (s, _) = newline(s)?;
 
     let (s, _) = multispace1(s)?;
@@ -119,8 +115,18 @@ fn parse_monkey(s: &str) -> IResult<&str, Monkey> {
     let (s, _) = newline(s)?;
 
     let (s, _) = multispace1(s)?;
-    let (s, _) = tag("Test: ")(s)?;
-    let (s, test) = parse_predicate(s)?;
+    let (s, _) = tag("Test: divisible by ")(s)?;
+    let (s, modulo) = u128(s)?;
+    let (s, _) = newline(s)?;
+    let (s, _) = multispace1(s)?;
+
+    let (s, _) = tag("If true: throw to monkey ")(s)?;
+    let (s, true_monkey) = u32(s)?;
+    let (s, _) = newline(s)?;
+    let (s, _) = multispace1(s)?;
+
+    let (s, _) = tag("If false: throw to monkey ")(s)?;
+    let (s, false_monkey) = u32(s)?;
 
     Ok((
         s,
@@ -128,7 +134,9 @@ fn parse_monkey(s: &str) -> IResult<&str, Monkey> {
             id,
             items: items.into_iter().collect::<VecDeque<_>>(),
             operation,
-            test,
+            modulo,
+            true_monkey,
+            false_monkey,
             inspections: 0,
         },
     ))
@@ -155,10 +163,10 @@ mod tests {
         let monkey = Monkey::from_str(monkeys[0])?;
         assert_eq!(monkey.id, 0);
         assert_eq!(monkey.items, vec![79, 98]);
-        assert_eq!((monkey.operation)(1), 19);
-        assert_eq!((monkey.operation)(2), 2 * 19);
-        assert_eq!((monkey.test)(23), 2);
-        assert_eq!((monkey.test)(24), 3);
+        assert_eq!(monkey.operation(1), 19);
+        assert_eq!(monkey.operation(2), 2 * 19);
+        assert_eq!(monkey.test(23), 2);
+        assert_eq!(monkey.test(24), 3);
 
         Ok(())
     }
