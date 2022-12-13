@@ -1,4 +1,7 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{
+    collections::{hash_map, HashMap},
+    str::FromStr,
+};
 
 use crate::{Coord, TwelfthError};
 
@@ -58,7 +61,7 @@ impl FromStr for Heightmap {
     }
 }
 
-impl Heightmap {
+impl<'a> Heightmap {
     pub fn start(&self) -> Coord {
         self.start
     }
@@ -71,6 +74,9 @@ impl Heightmap {
 
     pub fn dimension(&self) -> (usize, usize) {
         (self.width, self.height)
+    }
+    pub fn iter(&'a self) -> hash_map::Iter<'a, Coord, char> {
+        self.grid.iter()
     }
 }
 

@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
     fmt::Display,
-    iter::once,
 };
 
 use colors_transform::{Color, Hsl};
@@ -73,11 +72,11 @@ impl<'a> Display for Dijkstra<'a> {
 }
 
 impl<'a> Dijkstra<'a> {
-    pub fn new(map: &'a Heightmap) -> Self {
+    pub fn new(map: &'a Heightmap, start: &Vec<Coord>) -> Self {
         Self {
             map,
-            unvisited: once(map.start()).collect(),
-            visited: HashMap::from([(map.start(), None)]),
+            unvisited: start.iter().cloned().collect(),
+            visited: HashMap::from_iter(start.iter().map(|c| (*c, None))),
             path: None,
         }
     }
@@ -130,7 +129,7 @@ mod tests {
     #[test]
     fn dijkstra_new_assigns_zero_distance_to_start_node() -> Result<(), TwelfthError> {
         let map = Heightmap::from_str(&std::fs::read_to_string("sample.txt")?)?;
-        let solver = Dijkstra::new(&map);
+        let solver = Dijkstra::new(&map, &vec![map.start()]);
         assert_eq!(solver.unvisited, vec![map.start()]);
         Ok(())
     }
@@ -138,7 +137,7 @@ mod tests {
     #[test]
     fn dijkstra_solve_1st() -> Result<(), TwelfthError> {
         let map = Heightmap::from_str(&std::fs::read_to_string("sample.txt")?)?;
-        let mut solver = Dijkstra::new(&map);
+        let mut solver = Dijkstra::new(&map, &vec![map.start()]);
 
         solver.solve_once()?;
 
@@ -151,7 +150,7 @@ mod tests {
     #[test]
     fn dijkstra_solve_2nd() -> Result<(), TwelfthError> {
         let map = Heightmap::from_str(&std::fs::read_to_string("sample.txt")?)?;
-        let mut solver = Dijkstra::new(&map);
+        let mut solver = Dijkstra::new(&map, &vec![map.start()]);
 
         solver.solve_once()?;
         solver.solve_once()?;
@@ -168,7 +167,7 @@ mod tests {
     #[test]
     fn dijkstra_solve_3rd() -> Result<(), TwelfthError> {
         let map = Heightmap::from_str(&std::fs::read_to_string("sample.txt")?)?;
-        let mut solver = Dijkstra::new(&map);
+        let mut solver = Dijkstra::new(&map, &vec![map.start()]);
 
         solver.solve_once()?;
         solver.solve_once()?;
@@ -186,7 +185,7 @@ mod tests {
     #[test]
     fn dijkstra_solve_4th() -> Result<(), TwelfthError> {
         let map = Heightmap::from_str(&std::fs::read_to_string("sample.txt")?)?;
-        let mut solver = Dijkstra::new(&map);
+        let mut solver = Dijkstra::new(&map, &vec![map.start()]);
 
         solver.solve_once()?;
         solver.solve_once()?;
@@ -205,11 +204,28 @@ mod tests {
     #[test]
     fn dijkstra_solve_sample() -> Result<(), TwelfthError> {
         let map = Heightmap::from_str(&std::fs::read_to_string("sample.txt")?)?;
-        let mut solver = Dijkstra::new(&map);
+        let mut solver = Dijkstra::new(&map, &vec![map.start()]);
 
         while !solver.solve_once()? {}
 
         assert_eq!(solver.path().map(|p| p.len()), Some(32));
+        Ok(())
+    }
+
+    #[test]
+    fn dijkstra_solve_sample_for_part2() -> Result<(), TwelfthError> {
+        let map = Heightmap::from_str(&std::fs::read_to_string("sample.txt")?)?;
+        let starts = map
+            .iter()
+            .filter(|(_, elevation)| **elevation == 'a')
+            .map(|(coord, _)| *coord)
+            .collect::<Vec<_>>();
+        let mut solver = Dijkstra::new(&map, &starts);
+        assert_eq!(starts.len(), 6);
+
+        while !solver.solve_once()? {}
+
+        assert_eq!(solver.path().map(|p| p.len()), Some(30));
         Ok(())
     }
 }
