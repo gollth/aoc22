@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{fmt::Debug, str::FromStr};
 
 use itertools::Itertools;
 use nom::{
@@ -24,10 +24,16 @@ impl From<std::io::Error> for ThirteenthError {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Packet {
     Number(u32),
     List(Vec<Packet>),
+}
+impl Packet {
+    pub fn divider(x: u32) -> Self {
+        use Packet::*;
+        List(vec![List(vec![Number(x)])])
+    }
 }
 
 fn parse_number(s: &str) -> IResult<&str, Packet> {
@@ -48,6 +54,15 @@ impl FromStr for Packet {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(parse_packet(s).finish()?.1)
+    }
+}
+
+impl Debug for Packet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Number(x) => write!(f, "{}", x),
+            Self::List(xs) => write!(f, "{:?}", xs),
+        }
     }
 }
 
@@ -93,6 +108,27 @@ pub fn sum_of_right_ordered_packet_indices(content: &str) -> Result<usize, Thirt
         .map_ok(|(i, _)| i + 1)
         .collect::<Result<Vec<_>, _>>()
         .map(|indices| indices.iter().sum())
+}
+
+pub fn divider_packet_indices(
+    content: &str,
+    dividers: &[Packet],
+) -> Result<Vec<usize>, ThirteenthError> {
+    let mut packets = content
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(Packet::from_str)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    packets.extend(dividers.iter().cloned());
+    packets.as_mut_slice().sort();
+
+    Ok(packets
+        .iter()
+        .enumerate()
+        .filter(|(_, packet)| dividers.contains(&packet))
+        .map(|(i, _)| i + 1)
+        .collect())
 }
 
 #[cfg(test)]
@@ -265,9 +301,18 @@ mod tests {
 
     #[test]
     fn sample_a() -> Result<(), ThirteenthError> {
-        Ok(assert_eq!(
-            sum_of_right_ordered_packet_indices(&std::fs::read_to_string("sample.txt")?)?,
-            13
-        ))
+        let sample = std::fs::read_to_string("sample.txt")?;
+        assert_eq!(sum_of_right_ordered_packet_indices(&sample)?, 13);
+        Ok(())
+    }
+
+    #[test]
+    fn sample_b() -> Result<(), ThirteenthError> {
+        let sample = std::fs::read_to_string("sample.txt")?;
+        assert_eq!(
+            divider_packet_indices(&sample, &[Packet::divider(2), Packet::divider(6)])?,
+            vec![10, 14]
+        );
+        Ok(())
     }
 }
