@@ -14,6 +14,9 @@ use nom::{
 type Coord = euclid::Vector2D<isize, euclid::UnknownUnit>;
 
 const CAVE_SAND_ENTRY: Coord = Coord::new(500, 0);
+const DOWN: Coord = Coord::new(0, 1);
+const LEFT: Coord = Coord::new(-1, 0);
+const RIGHT: Coord = Coord::new(1, 0);
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 enum Material {
@@ -25,9 +28,9 @@ enum Material {
 impl Display for Material {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Air => write!(f, "·"),
+            Self::Air => write!(f, " "),
             Self::Rock => write!(f, "█"),
-            Self::Sand => write!(f, "○"),
+            Self::Sand => write!(f, "░"),
         }
     }
 }
@@ -45,6 +48,7 @@ fn parse_structure(s: &str) -> IResult<&str, Vec<Coord>> {
 pub struct Cave {
     cave: Array2<Material>,
     region: (Coord, Coord),
+    has_ground: bool,
 }
 
 fn index(c: Coord) -> [usize; 2] {
@@ -54,25 +58,26 @@ fn index(c: Coord) -> [usize; 2] {
 impl Cave {
     pub fn simulate(&mut self) -> bool {
         let mut grain = CAVE_SAND_ENTRY;
-        let down = Coord::new(0, 1);
-        let left = Coord::new(-1, 0);
-        let right = Coord::new(1, 0);
 
         loop {
-            match self.cave.get(index(grain + down)) {
-                None => return false, // grain free falling
+            if self.has_ground && self.cave[index(CAVE_SAND_ENTRY)] == Material::Sand {
+                // sand is blocking entry
+                return false;
+            }
+            match self.cave.get(index(grain + DOWN)) {
+                None if !self.has_ground => return false, // grain free falling, no ground
                 Some(Material::Air) => {
-                    grain += down;
+                    grain += DOWN;
                     continue;
                 }
                 _ => {}
             };
-            if self.cave[index(grain + down + left)] == Material::Air {
-                grain += down + left;
+            if self.cave[index(grain + DOWN + LEFT)] == Material::Air {
+                grain += DOWN + LEFT;
                 continue;
             }
-            if self.cave[index(grain + down + right)] == Material::Air {
-                grain += down + right;
+            if self.cave[index(grain + DOWN + RIGHT)] == Material::Air {
+                grain += DOWN + RIGHT;
                 continue;
             }
 
@@ -80,6 +85,36 @@ impl Cave {
             self.cave[index(grain)] = Material::Sand;
             return true;
         }
+    }
+
+    pub fn create_floor(&mut self) {
+        let height = self.region.1.y + 2;
+        self.cave
+            .slice_mut(s![.., height..=height])
+            .fill(Material::Rock);
+        self.region.1.y = height;
+        self.has_ground = true;
+    }
+
+    pub fn viewport(&mut self, left: isize, right: isize, top: isize, bottom: isize) {
+        self.region = (Coord::new(left, top), Coord::new(right, bottom));
+    }
+
+    pub fn left(&mut self, left: isize) -> &mut Self {
+        self.region.0.x = left;
+        self
+    }
+    pub fn right(&mut self, right: isize) -> &mut Self {
+        self.region.1.x = right;
+        self
+    }
+    pub fn top(&mut self, top: isize) -> &mut Self {
+        self.region.0.y = top;
+        self
+    }
+    pub fn bottom(&mut self, bottom: isize) -> &mut Self {
+        self.region.1.y = bottom;
+        self
     }
 }
 
@@ -118,6 +153,7 @@ impl FromStr for Cave {
         Ok(Self {
             cave,
             region: (min, max),
+            has_ground: false,
         })
     }
 }
@@ -126,6 +162,7 @@ impl Display for Cave {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let x_digits = self.region.1.x.to_string().len();
         let y_digits = self.region.1.y.to_string().len();
+        let y_range = (1..=y_digits).rev().map(|n| 10usize.pow(n as u32));
         for _ in 0..=y_digits {
             write!(f, " ")?;
         }
@@ -162,15 +199,13 @@ impl Display for Cave {
         }
         writeln!(f, "┤")?;
 
-        let y_range = (1..=y_digits).rev().map(|n| 10usize.pow(n as u32));
-
         for y in self.region.0.y..=self.region.1.y {
             write!(f, "│")?;
 
             for n in y_range.clone() {
-                let n = (y as usize) % n / (n / 10);
-                if n > 0 && y % 5 == 0 || y == 0 {
-                    write!(f, "{}", n)?;
+                let digit = (y as usize) % n / (n / 10);
+                if y % 5 == 0 {
+                    write!(f, "{}", digit)?;
                 } else {
                     write!(f, " ")?;
                 }
@@ -182,7 +217,7 @@ impl Display for Cave {
                     write!(f, "●")?;
                     continue;
                 }
-                write!(f, "{}", self.cave[[x as usize, y as usize]])?;
+                write!(f, "{}", self.cave[index(Coord::new(x, y))])?;
             }
             writeln!(f, "│")?;
         }
@@ -291,6 +326,26 @@ mod tests {
             i += 1;
         }
         assert_eq!(i, 24);
+        Ok(())
+    }
+
+    #[test]
+    fn cave_sample_with_floor() -> Result<()> {
+        let mut cave = Cave::from_str(&std::fs::read_to_string("sample.txt")?)?;
+        cave.create_floor();
+        assert_eq!(cave.region.1.y, 11);
+        Ok(())
+    }
+
+    #[test]
+    fn cave_sample_simulate_until_settled_with_floor() -> Result<()> {
+        let mut cave = Cave::from_str(&std::fs::read_to_string("sample.txt")?)?;
+        cave.create_floor();
+        let mut i = 0;
+        while cave.simulate() {
+            i += 1;
+        }
+        assert_eq!(i, 93);
         Ok(())
     }
 }
