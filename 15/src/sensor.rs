@@ -3,11 +3,22 @@ use std::str::FromStr;
 use anyhow::{anyhow, Result};
 use regex::Regex;
 
-use crate::Coord;
+use crate::{manhatten, Coord};
 
 pub struct Sensor {
-    pub location: Coord,
-    pub beacon: Coord,
+    location: Coord,
+    beacon: Coord,
+    range: i32,
+    pub min: Coord,
+    pub max: Coord,
+}
+
+impl Sensor {
+    pub fn covers(&self, coord: &Coord) -> bool {
+        *coord != self.location
+            && *coord != self.beacon
+            && manhatten(&(self.location - *coord)) <= self.range
+    }
 }
 
 impl FromStr for Sensor {
@@ -23,9 +34,17 @@ impl FromStr for Sensor {
 
         let group = |name| captures.name(name).unwrap().as_str().parse::<i32>();
 
+        let location = Coord::new(group("sx")?, group("sy")?);
+        let beacon = Coord::new(group("bx")?, group("by")?);
+        let range = manhatten(&(location - beacon));
+        let min = Coord::new(location.x - range, location.y - range);
+        let max = Coord::new(location.x + range, location.y + range);
         Ok(Self {
-            location: Coord::new(group("sx")?, group("sy")?),
-            beacon: Coord::new(group("bx")?, group("by")?),
+            location,
+            beacon,
+            range,
+            min,
+            max,
         })
     }
 }

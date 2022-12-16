@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use anyhow::Result;
 use clap::Parser;
-use fifteenth::{map::Map, sensor::Sensor};
+use fifteenth::{sensor::Sensor, Coord};
 
 /// Beacon Exclusion Zone: Solve the Aoc 22 day 15 problem
 #[derive(Debug, Parser)]
@@ -11,54 +11,37 @@ struct Options {
     #[clap(long, default_value = "sample.txt")]
     file: String,
 
-    /// Column index of the viewport's right edge during animation (use <500, omit for auto)
-    #[clap(short, long)]
-    left: Option<i32>,
-
-    /// Column index of the viewport's right edge during animation (use >500, omit for auto)
-    #[clap(short, long)]
-    right: Option<i32>,
-
-    /// Row index of the viewport's top edge during animation (use ~0, omit for auto)
-    #[clap(short, long)]
-    top: Option<i32>,
-
-    /// Row index of the viewport's bottom edge during animation (use ~15, omit for auto)
-    #[clap(short, long)]
-    bottom: Option<i32>,
-
     /// Row index to which to check for coverage (use 10 for sample, 2000000 for input)
     #[clap(long, default_value_t = 10)]
     check: i32,
-
-    /// Omit the nice visualization and just print the result
-    #[clap(long)]
-    dont_visualize: bool,
 }
 
 fn main() -> Result<()> {
     let args = Options::parse();
 
-    let mut map = Map::new(
-        std::fs::read_to_string(&args.file)?
-            .lines()
-            .map(Sensor::from_str)
-            .collect::<Result<_>>()?,
+    let sensors = std::fs::read_to_string(&args.file)?
+        .lines()
+        .map(Sensor::from_str)
+        .collect::<Result<Vec<_>>>()?;
+
+    let (mut min, mut max) = (
+        Coord::new(i32::MAX, i32::MAX),
+        Coord::new(i32::MIN, i32::MIN),
     );
 
-    args.left.map(|l| map.left(l));
-    args.right.map(|r| map.right(r));
-    args.top.map(|t| map.top(t));
-    args.bottom.map(|b| map.bottom(b));
-
-    if !args.dont_visualize {
-        println!("{}", map);
+    let sensors = sensors.iter();
+    for sensor in sensors.clone() {
+        min = min.min(sensor.min);
+        max = max.max(sensor.max)
     }
 
-    println!(
-        "Coverage in row {}: {}",
-        args.check,
-        map.coverage_row(args.check).count()
-    );
+    let coverage = (min.x..=max.x)
+        .map(|x| Coord::new(x, args.check))
+        .filter(|c| sensors.clone().any(|sensor| sensor.covers(c)))
+        .count();
+
+    println!("Area from {:?} .. {:?}", min, max);
+    println!("Coverage in row {}: {}", args.check, coverage);
+
     Ok(())
 }
