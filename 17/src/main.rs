@@ -12,16 +12,22 @@ struct Options {
     file: String,
 
     /// How many steps per second are simulated? [Hz]
-    #[clap(short, long, default_value_t = 5.0)]
+    #[clap(short, long, default_value_t = 25.0)]
     frequency: f32,
 
     /// How many rocks should be placed until the simulation stops?
-    #[clap(short, long, default_value_t = 5)]
-    rocks: u32,
+    #[clap(short, long, default_value_t = 100)]
+    rocks: usize,
 
     /// Omit the nice visualization and just print the result
     #[clap(long)]
     dont_visualize: bool,
+
+    /// Provide a detected pattern cycle cycle, i.e. after how many rocks the
+    /// sequence repeats again. Can be found out with the jupyter notebook
+    /// (53 for sample and 2626 for input)
+    #[clap(long)]
+    cycle: Option<usize>,
 }
 
 fn clear() {
@@ -59,6 +65,34 @@ fn main() -> Result<()> {
 
         if chamber.gravity() {
             rocks += 1;
+            if let Some(cycle) = args.cycle {
+                if let Some(offset) = chamber.find_repeating_offset(cycle) {
+                    let rocks_up_to_offset = chamber.total_rocks_within(0..offset);
+                    let rocks_per_cycle = chamber.total_rocks_within(offset..offset + cycle);
+
+                    let n = (args.rocks - rocks_up_to_offset) / rocks_per_cycle;
+                    let rocks_up_to_last_cycle = rocks_up_to_offset + n * rocks_per_cycle;
+                    let rocks_remaining = args.rocks - rocks_up_to_last_cycle;
+
+                    let height_of_last_rocks = chamber
+                        .history
+                        .iter()
+                        .skip(rocks_up_to_offset)
+                        .take(rocks_remaining)
+                        .cloned()
+                        .map(|y| y - offset)
+                        .max()
+                        .unwrap_or_default()
+                        + 1;
+
+                    println!(
+                        "The entire tower after the {}th rock is {} units high",
+                        args.rocks,
+                        offset + n * cycle + height_of_last_rocks
+                    );
+                    return Ok(());
+                }
+            }
             if rocks >= args.rocks {
                 break;
             }
@@ -69,6 +103,7 @@ fn main() -> Result<()> {
     if !args.dont_visualize {
         clear();
     }
+    println!("{:?}", chamber);
     render(
         &chamber,
         &format!(

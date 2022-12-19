@@ -1,23 +1,24 @@
-use std::{collections::HashSet, fmt::Display};
+use std::{fmt::Display, ops::Range};
 
 use anyhow::{anyhow, Result};
 use enum_iterator::{first, next_cycle, Sequence};
+use num_derive::FromPrimitive;
 
 const WIDTH: i32 = 7;
 const DOWN: Coord = Coord::new(0, -1);
 
 type Coord = euclid::Vector2D<i32, euclid::UnknownUnit>;
 
-#[derive(Debug, PartialEq, Eq, Clone, Sequence)]
+#[derive(Debug, PartialEq, Eq, Clone, Sequence, FromPrimitive)]
 enum Shape {
-    Horizontal,
+    Horizontal = 0,
     Plus,
     Bend,
     Vertical,
     Block,
 }
 #[derive(Debug, PartialEq, Eq, Clone)]
-struct Rock {
+pub struct Rock {
     origin: Coord,
     shape: Shape,
     offsets: Vec<Coord>,
@@ -61,47 +62,123 @@ impl Rock {
 
 pub struct Chamber {
     rock: Rock,
-    rocks: HashSet<Coord>,
+    rocks: Vec<u8>,
+    pub history: Vec<usize>,
+    min: i32,
     max: i32,
 }
 impl Default for Chamber {
     fn default() -> Self {
         Self {
             rock: Rock::default(),
-            rocks: HashSet::new(),
-            max: 3,
+            rocks: Vec::new(),
+            history: Vec::new(),
+            min: 0,
+            max: 0,
         }
     }
 }
 impl Chamber {
+    pub fn new(rock: Rock) -> Self {
+        Self {
+            rock,
+            rocks: Vec::new(),
+            history: Vec::new(),
+            min: 0,
+            max: 0,
+        }
+    }
     pub fn spawn(&mut self) {
         self.rock = Rock::new(
-            &Coord::new(2, self.max),
+            &Coord::new(2, self.max + 3),
             next_cycle(&self.rock.shape).unwrap(),
         );
     }
 
     fn occupied(&self, coord: Coord) -> bool {
-        self.rocks.contains(&coord)
+        match self.rocks.get(coord.y as usize) {
+            Some(row) => 1 << coord.x & row != 0,
+            None => false,
+        }
+    }
+
+    pub fn total_rocks_within(&self, range: Range<usize>) -> usize {
+        self.history
+            .iter()
+            .filter(|y| range.start <= **y && **y < range.end)
+            .count()
+    }
+
+    fn place(&mut self) {
+        for c in self.rock.coords() {
+            let y = c.y as usize;
+            if self.rocks.len() <= y {
+                self.rocks.push(0);
+            }
+            self.rocks[y] |= 1 << c.x;
+        }
+
+        self.history.push(
+            self.rock
+                .coords()
+                .iter()
+                .map(|c| c.y as usize)
+                .max()
+                .unwrap_or_default(),
+        );
     }
 
     pub fn gravity(&mut self) -> bool {
         let coords = self.rock.coords();
         if coords.iter().any(|c| self.occupied(*c + DOWN) || c.y == 0) {
             // Rock touches something solid below
-            self.rocks.extend(coords.iter());
-            self.max = self
-                .rocks
-                .iter()
-                .max_by_key(|c| c.y)
-                .cloned()
-                .unwrap_or_default()
-                .y
-                + 4;
+            self.place();
+            self.max = self.rocks.len() as i32;
+            self.min = 0.max(self.max - 20);
             return true;
         }
         self.rock.fall_down();
         false
+    }
+
+    fn auto_correlation(&self, i: usize) -> usize {
+        let mut cor = 0;
+        for n in 0..self.rocks.len() {
+            if n as isize - i as isize >= 0 {
+                cor += (self.rocks[n] as usize) * (self.rocks[n - i] as usize);
+            }
+        }
+        cor
+    }
+
+    pub fn find_repeating_frequency(&self, threshold: f32) -> Option<usize> {
+        let autocor = (0..self.rocks.len())
+            .map(|i| self.auto_correlation(i as usize))
+            .collect::<Vec<_>>();
+        let max = autocor[0] as f32;
+        autocor
+            .into_iter()
+            .map(|c| c as f32 / max)
+            .enumerate()
+            .filter(|(i, ac)| *i != 0 && *ac > threshold)
+            .map(|(i, _)| i)
+            .next()
+    }
+
+    pub fn find_repeating_offset(&self, frequency: usize) -> Option<usize> {
+        if 2 * frequency > self.rocks.len() {
+            return None;
+        }
+        for i in 0..frequency {
+            let first_half = self.rocks[i..frequency].iter().collect::<Vec<_>>();
+            let second_half = self.rocks[frequency + i..2 * frequency]
+                .iter()
+                .collect::<Vec<_>>();
+            if first_half == second_half {
+                return Some(i);
+            }
+        }
+        None
     }
 
     pub fn push(&mut self, jet: &Coord) {
@@ -114,20 +191,27 @@ impl Chamber {
         }
         self.rock.push(jet);
     }
-    pub fn max_height(&self) -> u32 {
-        1 + self
-            .rocks
-            .iter()
-            .max_by_key(|c| c.y)
-            .cloned()
-            .unwrap_or_default()
-            .y as u32
+    pub fn max_height(&self) -> i32 {
+        self.max
     }
 }
 
+impl std::fmt::Debug for Chamber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[")?;
+        for y in 0..self.max {
+            if y != 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", self.rocks[y as usize])?;
+        }
+        write!(f, "]")?;
+        Ok(())
+    }
+}
 impl Display for Chamber {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for y in (0..=(self.max + 2)).rev() {
+        for y in (0.max(self.min - 2)..=(self.max + 5)).rev() {
             if y % 5 == 0 {
                 write!(f, "{y:>4} ┤")?;
             } else {
@@ -144,13 +228,27 @@ impl Display for Chamber {
                     write!(f, "·")?;
                 }
             }
-            writeln!(f, "│")?;
+            if y == self.min {
+                writeln!(f, "┤")?;
+            } else if y == self.max {
+                writeln!(f, "┥")?;
+            } else {
+                writeln!(f, "│")?;
+            }
         }
-        write!(f, "     ╰")?;
-        for _ in 0..WIDTH {
-            write!(f, "─")?;
+        if self.min > 2 {
+            write!(f, "     ⋮")?;
+            for _ in 0..WIDTH {
+                write!(f, " ")?;
+            }
+            writeln!(f, "⋮")?;
+        } else {
+            write!(f, "     ╰")?;
+            for _ in 0..WIDTH {
+                write!(f, "─")?;
+            }
+            writeln!(f, "╯")?;
         }
-        writeln!(f, "╯")?;
         Ok(())
     }
 }
@@ -200,9 +298,8 @@ impl From<&Jet> for String {
 
 #[cfg(test)]
 mod tests {
-    use enum_iterator::next_cycle;
-
     use super::*;
+    use enum_iterator::next_cycle;
 
     #[test]
     fn parse_sample_instructions() {
@@ -217,7 +314,7 @@ mod tests {
 
     #[test]
     fn chamber_default_is_empty() {
-        assert_eq!(Chamber::default().rocks, HashSet::new())
+        assert_eq!(Chamber::default().rocks, Vec::new())
     }
 
     #[test]
@@ -268,8 +365,10 @@ mod tests {
         let mut chamber = Chamber::default();
         let original_origin = chamber.rock.origin;
         // Place some rocks directly next to currently falling rock
-        chamber.rocks.insert(original_origin + Coord::new(-1, 0));
-        chamber.rocks.insert(original_origin + Coord::new(1, 0) * 4);
+        chamber.rocks.push(0);
+        chamber.rocks.push(0);
+        chamber.rocks.push(0);
+        chamber.rocks.push(1 << 6 | 1 << 1);
 
         chamber.push(&Coord::from(&Jet::Left));
         assert_eq!(chamber.rock.origin, original_origin);
@@ -295,5 +394,121 @@ mod tests {
         }
         assert_eq!(chamber.max_height(), 3068);
         Ok(())
+    }
+
+    #[test]
+    fn chamber_sample_a_repeating_frequency() -> Result<()> {
+        let jetstream = Jet::stream(&std::fs::read_to_string("sample.txt")?)?;
+        let mut chamber = Chamber::default();
+
+        let mut rocks = 0;
+        for jet in jetstream.iter().cycle() {
+            chamber.push(&jet.into());
+            if chamber.gravity() {
+                rocks += 1;
+                if let Some(f) = chamber.find_repeating_frequency(0.75) {
+                    assert_eq!(f, 53);
+                    return Ok(());
+                }
+                if rocks >= 2022 {
+                    break;
+                }
+                chamber.spawn();
+            }
+        }
+        panic!("find_repeating_frequency() didn't find any pattern");
+    }
+
+    #[test]
+    fn chamber_sample_a_repeating_offset() -> Result<()> {
+        let jetstream = Jet::stream(&std::fs::read_to_string("sample.txt")?)?;
+        let mut chamber = Chamber::default();
+
+        let mut rocks = 0;
+        let mut cycle = None;
+        for jet in jetstream.iter().cycle() {
+            chamber.push(&jet.into());
+            if chamber.gravity() {
+                rocks += 1;
+                if cycle.is_none() {
+                    cycle = chamber.find_repeating_frequency(0.75);
+                }
+                if let Some(offset) = cycle.and_then(|f| chamber.find_repeating_offset(f)) {
+                    assert_eq!(offset, 25);
+                    return Ok(());
+                }
+                if rocks >= 2022 {
+                    break;
+                }
+                chamber.spawn();
+            }
+        }
+        panic!("find_repeating_frequency() and/or find_repeating_offset didn't find any pattern");
+    }
+
+    #[test]
+    fn chamber_sample_a_cyclic_solution() -> Result<()> {
+        let jetstream = Jet::stream(&std::fs::read_to_string("sample.txt")?)?;
+        let mut chamber = Chamber::default();
+
+        let target = 2022;
+        let mut rocks = 0;
+        let mut cycle = None;
+        for jet in jetstream.iter().cycle() {
+            chamber.push(&jet.into());
+            if chamber.gravity() {
+                rocks += 1;
+                if cycle.is_none() {
+                    cycle = chamber.find_repeating_frequency(0.75);
+                }
+                if let Some(frequency) = cycle {
+                    if let Some(offset) = chamber.find_repeating_offset(frequency) {
+                        println!("Height of offset: {}", offset);
+                        println!("Height per cycle: {}", frequency);
+                        let rocks_up_to_offset = chamber.total_rocks_within(0..offset);
+                        let rocks_per_cycle =
+                            chamber.total_rocks_within(offset..offset + frequency);
+
+                        assert_eq!(rocks_up_to_offset, 15);
+                        assert_eq!(rocks_per_cycle, 35);
+                        let n = (target - rocks_up_to_offset) / rocks_per_cycle;
+                        println!("Amount of cycles: {}", n);
+                        let rocks_up_to_last_cycle = rocks_up_to_offset + n * rocks_per_cycle;
+                        let rocks_remaining = target - rocks_up_to_last_cycle;
+
+                        println!("Rocks of offset: {}", rocks_up_to_offset);
+                        println!("Rocks per cycle: {}", rocks_per_cycle);
+                        println!("Remaining rocks: {}", rocks_remaining);
+                        println!(
+                            "Total rocks:     {}",
+                            rocks_up_to_offset + n * rocks_per_cycle + rocks_remaining
+                        );
+                        assert_eq!(rocks_remaining, 12);
+                        assert!(rocks_remaining < rocks_per_cycle);
+
+                        let height_of_last_rocks = chamber
+                            .history
+                            .iter()
+                            .skip(rocks_up_to_offset)
+                            .take(rocks_remaining)
+                            .cloned()
+                            .map(|y| y - offset)
+                            .max()
+                            .unwrap_or_default()
+                            + 1;
+                        println!("Height of last rocks {}", height_of_last_rocks);
+
+                        assert_eq!(rocks_up_to_last_cycle, 2010);
+                        assert_eq!(offset + n * frequency + height_of_last_rocks, 3068);
+                        return Ok(());
+                    }
+                }
+                if rocks >= target {
+                    break;
+                }
+                chamber.spawn();
+            }
+        }
+        panic!("find_repeating_frequency() and/or find_repeating_offset didn't find any pattern");
     }
 }
