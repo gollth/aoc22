@@ -1,0 +1,10 @@
+[package]
+name = "eighteenth"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+euclid = "0.22.7"
+ndarray = "0.15.6"
+anyhow = "1.0.68"
+itertools = "0.10.5"
