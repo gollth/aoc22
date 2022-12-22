@@ -8,3 +8,5 @@ euclid = "0.22.7"
 ndarray = "0.15.6"
 anyhow = "1.0.68"
 itertools = "0.10.5"
+kiss3d = "0.32"
+clap = { version = "4.0.29", features= ["derive"] }
