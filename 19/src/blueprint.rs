@@ -9,7 +9,7 @@ use nom::{
     Finish, IResult,
 };
 
-use crate::{Material, CLAY, GEODE, OBSIDIAN, ORE};
+use crate::{solve, Material, CLAY, GEODE, OBSIDIAN, ORE};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 struct Robot {
@@ -61,6 +61,10 @@ impl Blueprint {
             .map(|robot| robot.costs[material])
             .max()
             .unwrap_or_default()
+    }
+
+    pub fn quality_level(&self, time_limit: i32) -> u32 {
+        self.id() * solve(self, time_limit)
     }
 }
 

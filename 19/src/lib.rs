@@ -155,8 +155,19 @@ mod tests {
             .split_terminator("\n\n")
             .map(Blueprint::from_str)
             .collect::<Result<Vec<_>>>()?;
-        assert_eq!(solve(&blueprints[0], 24), 9);
-        assert_eq!(solve(&blueprints[1], 24), 12);
+        assert_eq!(blueprints[0].quality_level(24), 1 * 9);
+        assert_eq!(blueprints[1].quality_level(24), 2 * 12);
+        Ok(())
+    }
+
+    #[test]
+    fn test_solve_b() -> Result<()> {
+        let blueprints = std::fs::read_to_string("sample.txt")?
+            .split_terminator("\n\n")
+            .map(Blueprint::from_str)
+            .collect::<Result<Vec<_>>>()?;
+        assert_eq!(solve(&blueprints[0], 32), 56);
+        assert_eq!(solve(&blueprints[1], 32), 62);
         Ok(())
     }
 

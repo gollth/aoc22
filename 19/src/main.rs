@@ -10,10 +10,19 @@ struct Options {
     /// Input file with the instructions
     #[clap(long, default_value = "sample.txt")]
     file: String,
+
+    /// How many minutes do you have time to crack geodes
+    #[clap(long, default_value_t = 24)]
+    time: i32,
+
+    /// Only take the first `n` blueprints into account
+    #[clap(long)]
+    blueprints: Option<usize>,
 }
 
 fn main() -> Result<()> {
-    let content = std::fs::read_to_string("sample.txt")?;
+    let args = Options::parse();
+    let content = std::fs::read_to_string(&args.file)?;
     let blueprints = content
         .split_terminator(if content.contains("\n\n") {
             "\n\n"
@@ -23,16 +32,23 @@ fn main() -> Result<()> {
         .map(Blueprint::from_str)
         .collect::<Result<Vec<_>>>()?;
 
-    let quality_levels = blueprints
+    let n = blueprints.len();
+    let solution = blueprints
         .into_iter()
-        .map(|blueprint| {
-            let geodes = solve(&blueprint, 24);
-            println!("#{}: max Geodes = {}", blueprint.id(), geodes);
-            blueprint.id() * geodes
-        })
-        .sum::<u32>();
+        .take(args.blueprints.unwrap_or(n))
+        .map(|blueprint| (blueprint.id(), solve(&blueprint, args.time)))
+        .inspect(|(i, x)| println!("#{i}: {x}"))
+        .collect::<Vec<_>>();
 
-    println!("Quality Level: {}", quality_levels);
+    println!(
+        "Quality Level: {}",
+        solution.iter().map(|(i, g)| i * g).sum::<u32>()
+    );
+
+    println!(
+        "Product of all max possible geodes: {}",
+        solution.iter().map(|(_, x)| x).product::<u32>()
+    );
 
     Ok(())
 }
