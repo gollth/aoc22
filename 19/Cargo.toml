@@ -1,0 +1,12 @@
+[package]
+name = "nineteenth"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.68"
+itertools = "0.10.5"
+clap = { version = "4.0.29", features= ["derive"] }
+nom = "7.1.1"
+nom-derive = "0.10.0"
+num = "0.4.0"
