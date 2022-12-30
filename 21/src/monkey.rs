@@ -1,57 +1,27 @@
 use anyhow::{anyhow, Error, Result};
 use nom::{
     branch::alt,
-    bytes::complete::take_while1,
-    character::complete::{char, i64},
+    bytes::complete::{tag, take_while1},
+    character::complete::i64,
     Finish, IResult,
+};
+use savage_core::{
+    expression::Expression,
+    helpers::{eq, int, var},
 };
 use std::str::FromStr;
 
-pub type Number = i64;
-
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum Operation {
-    Plus,
-    Minus,
-    Times,
-    Divide,
-}
-
-impl Operation {
-    pub fn call(&self, a: Number, b: Number) -> Number {
-        match self {
-            Operation::Plus => a + b,
-            Operation::Minus => a - b,
-            Operation::Times => a * b,
-            Operation::Divide => a / b,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum Monkey {
-    Lone {
-        name: String,
-        number: Number,
-    },
-    Math {
-        name: String,
-        a: String,
-        op: Operation,
-        b: String,
-    },
+pub struct Monkey {
+    name: String,
+    expr: Expression,
 }
 impl Monkey {
     pub fn name(&self) -> String {
-        match self {
-            Monkey::Lone { name, number: _ } => name.clone(),
-            Monkey::Math {
-                name,
-                a: _,
-                op: _,
-                b: _,
-            } => name.clone(),
-        }
+        self.name.clone()
+    }
+    pub fn expression(&self) -> &Expression {
+        &self.expr
     }
 }
 
@@ -66,71 +36,111 @@ impl FromStr for Monkey {
 fn parse_id(s: &str) -> IResult<&str, String> {
     take_while1(|c| matches!(c, 'a'..='z'))(s).map(|(s, id)| (s, id.to_owned()))
 }
-fn whitespace(s: &str) -> IResult<&str, ()> {
-    Ok((char(' ')(s)?.0, ()))
-}
-fn parse_plus(s: &str) -> IResult<&str, Operation> {
-    char('+')(s).map(|(s, _)| (s, Operation::Plus))
-}
-fn parse_minus(s: &str) -> IResult<&str, Operation> {
-    char('-')(s).map(|(s, _)| (s, Operation::Minus))
-}
-fn parse_times(s: &str) -> IResult<&str, Operation> {
-    char('*')(s).map(|(s, _)| (s, Operation::Times))
-}
-fn parse_divide(s: &str) -> IResult<&str, Operation> {
-    char('/')(s).map(|(s, _)| (s, Operation::Divide))
-}
-
-fn parse_lone(s: &str) -> IResult<&str, Monkey> {
-    let (s, name) = parse_id(s)?;
-    let (s, _) = char(':')(s)?;
-    let (s, _) = whitespace(s)?;
-    let (s, number) = i64(s)?;
-    Ok((s, Monkey::Lone { name, number }))
-}
-
-fn parse_math(s: &str) -> IResult<&str, Monkey> {
-    let (s, name) = parse_id(s)?;
-    let (s, _) = char(':')(s)?;
-    let (s, _) = whitespace(s)?;
+fn parse_plus(s: &str) -> IResult<&str, Expression> {
     let (s, a) = parse_id(s)?;
-    let (s, _) = whitespace(s)?;
-    let (s, op) = alt((parse_plus, parse_minus, parse_times, parse_divide))(s)?;
-    let (s, _) = whitespace(s)?;
+    let (s, _) = tag(" + ")(s)?;
     let (s, b) = parse_id(s)?;
-    Ok((s, Monkey::Math { name, a, op, b }))
+    Ok((s, var(a) + var(b)))
+}
+fn parse_minus(s: &str) -> IResult<&str, Expression> {
+    let (s, a) = parse_id(s)?;
+    let (s, _) = tag(" - ")(s)?;
+    let (s, b) = parse_id(s)?;
+    Ok((s, var(a) - var(b)))
+}
+fn parse_times(s: &str) -> IResult<&str, Expression> {
+    let (s, a) = parse_id(s)?;
+    let (s, _) = tag(" * ")(s)?;
+    let (s, b) = parse_id(s)?;
+    Ok((s, var(a) * var(b)))
+}
+fn parse_divide(s: &str) -> IResult<&str, Expression> {
+    let (s, a) = parse_id(s)?;
+    let (s, _) = tag(" / ")(s)?;
+    let (s, b) = parse_id(s)?;
+    Ok((s, var(a) / var(b)))
+}
+fn parse_equals(s: &str) -> IResult<&str, Expression> {
+    let (s, a) = parse_id(s)?;
+    let (s, _) = tag(" = ")(s)?;
+    let (s, b) = parse_id(s)?;
+    Ok((s, eq(var(a), var(b))))
+}
+
+fn parse_constant(s: &str) -> IResult<&str, Expression> {
+    i64(s).map(|(s, x)| (s, int(x)))
+}
+fn parse_variable(s: &str) -> IResult<&str, Expression> {
+    parse_id(s).map(|(s, x)| (s, var(x)))
+}
+fn parse_binary_operation(s: &str) -> IResult<&str, Expression> {
+    alt((
+        parse_plus,
+        parse_minus,
+        parse_times,
+        parse_divide,
+        parse_equals,
+    ))(s)
+}
+fn parse_expression(s: &str) -> IResult<&str, Expression> {
+    alt((parse_constant, parse_binary_operation, parse_variable))(s)
 }
 
 fn parse_monkey(s: &str) -> IResult<&str, Monkey> {
-    alt((parse_lone, parse_math))(s)
+    let (s, name) = parse_id(s)?;
+    let (s, _) = tag(": ")(s)?;
+    let (s, expr) = parse_expression(s)?;
+    Ok((s, Monkey { name, expr }))
 }
 
 #[cfg(test)]
 mod test {
+
     use super::*;
 
     #[test]
-    fn lone_from_str() -> Result<()> {
+    fn expr_constant_from_str() -> Result<()> {
         assert_eq!(
             Monkey::from_str("abcd: 42")?,
-            Monkey::Lone {
+            Monkey {
                 name: "abcd".to_owned(),
-                number: 42
+                expr: int(42),
             }
         );
         Ok(())
     }
 
     #[test]
-    fn math_from_str() -> Result<()> {
+    fn expr_binary_from_str() -> Result<()> {
         assert_eq!(
             Monkey::from_str("abcd: efgh + ijkl")?,
-            Monkey::Math {
+            Monkey {
                 name: "abcd".to_owned(),
-                a: "efgh".to_owned(),
-                op: Operation::Plus,
-                b: "ijkl".to_owned()
+                expr: var("efgh") + var("ijkl")
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn expr_variable_from_str() -> Result<()> {
+        assert_eq!(
+            Monkey::from_str("humn: x")?,
+            Monkey {
+                name: "humn".to_owned(),
+                expr: var("x")
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn expr_equals_from_str() -> Result<()> {
+        assert_eq!(
+            Monkey::from_str("foo: bar = baz")?,
+            Monkey {
+                name: "foo".to_owned(),
+                expr: eq(var("bar"), var("baz")),
             }
         );
         Ok(())
