@@ -7,9 +7,11 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.68"
+arr_macro = "0.2.1"
 clap = { version = "4.0.32", features = ["derive"] }
 colors-transform = "0.2.11"
 enum-iterator = "1.2.0"
 euclid = "0.22.7"
 itertools = "0.10.5"
+ndarray = "0.15.6"
 termion = "2.0.1"

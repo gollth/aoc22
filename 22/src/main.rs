@@ -3,7 +3,7 @@ use std::{str::FromStr, time::Duration};
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use itertools::Itertools;
-use twentysecond::{grid::Grid, parse_instructions, Move};
+use twentysecond::{grid::Grid, parse_instructions, Move, Wrappable};
 
 /// Monkey Map: Solve the Aoc day 22 problem
 #[derive(Debug, Parser)]
@@ -43,7 +43,6 @@ fn main() -> Result<()> {
 
     let mut grid = Grid::from_str(a)?;
 
-    let mut ok = true;
     for instruction in parse_instructions(b)?
         .iter()
         .map(|cmd| match cmd {
@@ -52,14 +51,14 @@ fn main() -> Result<()> {
         })
         .flatten()
     {
-        if !ok && instruction == Move::Forward(1) {
+        if instruction == Move::Forward(1) {
             continue;
         }
         if visualize {
             render(&grid, args.frequency);
         }
 
-        ok = grid.execute(instruction);
+        grid.execute(instruction);
     }
 
     if args.render {

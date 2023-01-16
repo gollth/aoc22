@@ -1,9 +1,15 @@
+pub mod cube;
 pub mod grid;
 
 pub type Coord = euclid::Vector2D<i32, euclid::UnknownUnit>;
 
-use enum_iterator::Sequence;
-use std::{fmt::Display, str::FromStr};
+use enum_iterator::{next_cycle, previous_cycle, Sequence};
+use std::{
+    fmt::Display,
+    ops::{Div, Mul},
+    str::FromStr,
+};
+use termion::color::{Fg, Reset, Rgb};
 
 use anyhow::Result;
 
@@ -13,6 +19,14 @@ pub enum Direction {
     Down = 1,
     Left = 2,
     Up = 3,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Rotation {
+    None,
+    Clockwise,
+    CounterClockwise,
+    OneEighty,
 }
 
 impl From<Direction> for Coord {
@@ -37,7 +51,31 @@ impl Display for Direction {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+impl Mul<Rotation> for Direction {
+    type Output = Direction;
+
+    fn mul(self, rot: Rotation) -> Self::Output {
+        match rot {
+            Rotation::None => self,
+            Rotation::Clockwise => next_cycle(&self).unwrap(),
+            Rotation::CounterClockwise => previous_cycle(&self).unwrap(),
+        }
+    }
+}
+
+impl Div for Direction {
+    type Output = Rotation;
+    fn div(self, other: Self) -> Self::Output {
+        use Direction::*;
+        match (self, other) {
+            (Left, Up) | (Up, Right) | (Right, Down) | (Down, Left) => Rotation::CounterClockwise,
+            (Left, Down) | (Down, Right) | (Right, Up) | (Up, Left) => Rotation::Clockwise,
+            _ => Rotation::None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct State {
     pub coord: Coord,
     pub dir: Direction,
@@ -50,10 +88,17 @@ impl State {
             coord,
             dir,
             last: Direction::Right,
-            is_tip: true,
+            is_tip: false,
         }
     }
 }
+
+impl PartialEq for State {
+    fn eq(&self, other: &Self) -> bool {
+        self.coord == other.coord && self.dir == other.dir
+    }
+}
+impl Eq for State {}
 
 impl Display for State {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -118,6 +163,59 @@ impl FromStr for Move {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cell {
+    Void,
+    Free,
+    Wall,
+}
+
+impl From<char> for Cell {
+    fn from(value: char) -> Self {
+        match value {
+            ' ' => Cell::Void,
+            '.' | '·' => Cell::Free,
+            '#' | '○' => Cell::Wall,
+            c => panic!("Unknown cell {}", c),
+        }
+    }
+}
+
+impl Display for Cell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Cell::Void => write!(f, " "),
+            Cell::Free => write!(f, "·"),
+            Cell::Wall => write!(f, "{}●{}", Fg(Rgb(168, 123, 44)), Fg(Reset)),
+        }
+    }
+}
+
+pub trait Wrappable {
+    fn tip(&self) -> State;
+    fn tip_mut(&mut self) -> &mut State;
+    // fn advance(&mut self, state: State);
+
+    fn turn_left(&mut self);
+    fn turn_right(&mut self);
+    fn advance(&mut self) -> bool;
+    // fn after_move(&mut self) -> bool;
+
+    fn execute(&mut self, instruction: Move) {
+        match instruction {
+            Move::TurnL => self.turn_left(),
+            Move::TurnR => self.turn_right(),
+            Move::Forward(n) => {
+                for _ in 0..n {
+                    if !self.advance() {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub fn parse_instructions(s: &str) -> Result<Vec<Move>> {
     s.replace("L", " L ")
         .replace("R", " R ")
@@ -151,5 +249,25 @@ mod tests {
 
         assert_eq!(grid.password(), 6032);
         Ok(())
+    }
+
+    #[ignore]
+    #[test]
+    fn direction() {
+        use Direction::*;
+        assert_eq!(Left / Left, Rotation::None);
+        assert_eq!(Right / Right, Rotation::None);
+        assert_eq!(Down / Down, Rotation::None);
+        assert_eq!(Up / Up, Rotation::None);
+
+        assert_eq!(Left / Down, Rotation::CounterClockwise);
+        assert_eq!(Down / Right, Rotation::CounterClockwise);
+        assert_eq!(Right / Up, Rotation::CounterClockwise);
+        assert_eq!(Up / Left, Rotation::CounterClockwise);
+
+        assert_eq!(Left / Up, Rotation::Clockwise);
+        assert_eq!(Up / Right, Rotation::Clockwise);
+        assert_eq!(Right / Down, Rotation::Clockwise);
+        assert_eq!(Down / Left, Rotation::Clockwise);
     }
 }

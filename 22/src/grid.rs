@@ -4,35 +4,7 @@ use colors_transform::{Color, Hsl};
 use enum_iterator::{next_cycle, previous_cycle};
 use termion::color::{Fg, Reset, Rgb};
 
-use crate::{coord, Coord, Direction, Move, State};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Cell {
-    Void,
-    Free,
-    Wall,
-}
-
-impl From<char> for Cell {
-    fn from(value: char) -> Self {
-        match value {
-            ' ' => Cell::Void,
-            '.' | '·' => Cell::Free,
-            '#' | '○' => Cell::Wall,
-            c => panic!("Unknown cell {}", c),
-        }
-    }
-}
-
-impl Display for Cell {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Cell::Void => write!(f, " "),
-            Cell::Free => write!(f, "·"),
-            Cell::Wall => write!(f, "{}●{}", Fg(Rgb(168, 123, 44)), Fg(Reset)),
-        }
-    }
-}
+use crate::{coord, Cell, Coord, Direction, State, Wrappable};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Grid {
@@ -52,9 +24,44 @@ impl Grid {
         self.starting
     }
 
-    pub fn neighbor(&self, coord: &Coord, dir: &Direction) -> (Coord, Cell) {
-        let dir = Coord::from(dir.clone());
-        let mut c = *coord;
+    pub fn password(&self) -> i32 {
+        let state = self.path.last().expect("empty path");
+        1000 * state.coord.y + 4 * state.coord.x + state.dir.clone() as usize as i32
+    }
+
+    fn after_move(&mut self) {
+        let length = self.path.len();
+        if length >= 2 {
+            self.path[length - 1].last = self.path[length - 2].dir;
+            self.path[length - 2].is_tip = false;
+        }
+    }
+}
+
+impl Wrappable for Grid {
+    fn tip(&self) -> State {
+        self.path.last().expect("empty path").clone()
+    }
+
+    fn tip_mut(&mut self) -> &mut State {
+        self.path.last_mut().expect("empty path")
+    }
+
+    fn turn_left(&mut self) {
+        let mut state = self.tip_mut();
+        state.dir = previous_cycle(&state.dir).unwrap();
+        self.after_move();
+    }
+    fn turn_right(&mut self) {
+        let mut state = self.tip_mut();
+        state.dir = next_cycle(&state.dir).unwrap();
+        self.after_move();
+    }
+
+    fn advance(&mut self) -> bool {
+        let state = self.tip();
+        let dir = Coord::from(state.dir.clone());
+        let mut c = state.coord;
         loop {
             c += dir;
             if c.x >= self.right {
@@ -70,47 +77,16 @@ impl Grid {
                 c.y += self.btm - self.top + 1;
             }
             let n = self[c];
-            if n != Cell::Void {
-                return (c, n);
+            if n == Cell::Free {
+                self.after_move();
+                self.path.push(State::new(c, state.dir));
+                return true;
+            }
+            if n == Cell::Wall {
+                self.after_move();
+                return false;
             }
         }
-    }
-
-    pub fn execute(&mut self, instruction: Move) -> bool {
-        match instruction {
-            Move::TurnL => {
-                let mut state = self.path.last_mut().expect("empty path");
-                state.dir = previous_cycle(&state.dir).unwrap();
-            }
-            Move::TurnR => {
-                let mut state = self.path.last_mut().expect("empty path");
-                state.dir = next_cycle(&state.dir).unwrap();
-            }
-            Move::Forward(n) => {
-                for _ in 0..n {
-                    let state = self.path.last().expect("empty path").clone();
-                    match self.neighbor(&state.coord, &state.dir) {
-                        (_, Cell::Wall) => return false,
-                        (coord, _) => {
-                            self.path.push(State::new(coord, state.dir));
-                        }
-                    }
-                }
-            }
-        }
-
-        let length = self.path.len();
-        if length >= 2 {
-            self.path[length - 1].last = self.path[length - 2].dir;
-            self.path[length - 2].is_tip = false;
-        }
-
-        true
-    }
-
-    pub fn password(&self) -> i32 {
-        let state = self.path.last().expect("empty path");
-        1000 * state.coord.y + 4 * state.coord.x + state.dir.clone() as usize as i32
     }
 }
 
@@ -214,6 +190,8 @@ impl Display for Grid {
 
 #[cfg(test)]
 mod tests {
+    use crate::Move;
+
     use super::*;
     use anyhow::{anyhow, Result};
     use itertools::Itertools;
@@ -266,38 +244,42 @@ mod tests {
     }
 
     #[test]
-    fn sample_neighbor() -> Result<()> {
-        let grid = grid_from_sample()?;
+    fn sample_advance_doesnt_move_into_rocks() -> Result<()> {
+        let mut grid = grid_from_sample()?;
+        *grid.tip_mut() = State::new(grid.starting + coord(2, 0), Right);
+        grid.advance();
         assert_eq!(
-            grid.neighbor(&(grid.starting_position() + coord(2, 0)), &Right),
-            (grid.starting_position() + coord(3, 0), Wall)
+            grid.tip(),
+            State::new(grid.starting + coord(2, 0), Right),
+            "{}",
+            grid
         );
         Ok(())
     }
 
     #[test]
-    fn sample_neightbor_wrapping() -> Result<()> {
-        let grid = grid_from_sample()?;
+    fn sample_advance_wrapping_a_to_b() -> Result<()> {
+        let mut grid = grid_from_sample()?;
 
-        assert_eq!(
-            grid.neighbor(&grid.starting_position(), &Left),
-            (coord(12, 1), Wall)
-        );
+        // assert_eq!(grid.neighbor(&starting, &Left), (coord(12, 1), Wall));
+        // assert_eq!(grid.neighbor(&starting, &Up), (coord(9, 12), Free));
 
-        assert_eq!(
-            grid.neighbor(&grid.starting_position(), &Up),
-            (coord(9, 12), Free)
-        );
+        let a = State::new(coord(12, 7), Right);
+        let b = State::new(coord(1, 7), Right);
 
-        let a = coord(12, 7);
-        let b = coord(1, 7);
-        assert_eq!(grid.neighbor(&a, &Right), (b, Free));
-        assert_eq!(grid.neighbor(&b, &Left), (a, Free));
-
-        let c = coord(6, 8);
-        let d = coord(6, 5);
-        assert_eq!(grid.neighbor(&c, &Down), (d, Cell::Free));
-        assert_eq!(grid.neighbor(&d, &Up), (c, Cell::Free));
+        *grid.tip_mut() = a;
+        grid.advance();
+        assert_eq!(grid.tip(), b, "{}", grid);
+        Ok(())
+    }
+    #[test]
+    fn sample_advance_wrapping_c_to_d() -> Result<()> {
+        let mut grid = grid_from_sample()?;
+        let c = State::new(coord(6, 8), Down);
+        let d = State::new(coord(6, 5), Down);
+        *grid.tip_mut() = c;
+        grid.advance();
+        assert_eq!(grid.tip(), d, "{}", grid);
         Ok(())
     }
 
@@ -309,8 +291,8 @@ mod tests {
         assert_eq!(
             grid.path,
             vec![
-                (grid.starting_position(), Right),
-                (grid.starting_position() + coord(1, 0), Right)
+                State::new(grid.starting_position(), Right),
+                State::new(grid.starting_position() + coord(1, 0), Right)
             ]
         );
         Ok(())
@@ -320,7 +302,7 @@ mod tests {
     fn sample_move_turn_left() -> Result<()> {
         let mut grid = grid_from_sample()?;
         grid.execute(Move::TurnL);
-        assert_eq!(grid.path, vec![(grid.starting_position(), Up)]);
+        assert_eq!(grid.path, vec![State::new(grid.starting_position(), Up)]);
         Ok(())
     }
 
@@ -328,7 +310,7 @@ mod tests {
     fn sample_move_turn_right() -> Result<()> {
         let mut grid = grid_from_sample()?;
         grid.execute(Move::TurnR);
-        assert_eq!(grid.path, vec![(grid.starting_position(), Down)]);
+        assert_eq!(grid.path, vec![State::new(grid.starting_position(), Down)]);
         Ok(())
     }
 
@@ -340,9 +322,9 @@ mod tests {
         assert_eq!(
             grid.path,
             vec![
-                (grid.starting_position(), Right),
-                (grid.starting_position() + coord(1, 0), Right),
-                (grid.starting_position() + coord(2, 0), Right),
+                State::new(grid.starting_position(), Right),
+                State::new(grid.starting_position() + coord(1, 0), Right),
+                State::new(grid.starting_position() + coord(2, 0), Right),
             ]
         );
         Ok(())
@@ -351,14 +333,14 @@ mod tests {
     #[test]
     fn sample_move_forward_wrapping_free_on_other_side() -> Result<()> {
         let mut grid = grid_from_sample()?;
-        grid.path = vec![(grid.starting_position(), Up)]; // adjust starting orientation
+        grid.path = vec![State::new(grid.starting_position(), Up)]; // adjust starting orientation
         grid.execute(Move::Forward(2));
         assert_eq!(
             grid.path,
             vec![
-                (grid.starting_position(), Up),
-                (coord(9, 12), Up),
-                (coord(9, 11), Up),
+                State::new(grid.starting_position(), Up),
+                State::new(coord(9, 12), Up),
+                State::new(coord(9, 11), Up),
             ]
         );
         Ok(())
@@ -367,9 +349,9 @@ mod tests {
     #[test]
     fn sample_move_forward_wrapping_wall_on_other_side() -> Result<()> {
         let mut grid = grid_from_sample()?;
-        grid.path = vec![(grid.starting_position(), Left)]; // adjust starting orientation
+        grid.path = vec![State::new(grid.starting_position(), Left)]; // adjust starting orientation
         grid.execute(Move::Forward(2));
-        assert_eq!(grid.path, vec![(grid.starting_position(), Left)]);
+        assert_eq!(grid.path, vec![State::new(grid.starting_position(), Left)]);
         Ok(())
     }
 }
