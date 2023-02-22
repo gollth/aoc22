@@ -14,6 +14,7 @@ pub type Coord = euclid::Vector2D<i32, euclid::UnknownUnit>;
 pub struct Grid {
     elves: HashSet<Coord>,
     preferences: VecDeque<([Direction; 3], Direction)>,
+    last_round: HashSet<Coord>,
 }
 
 impl FromStr for Grid {
@@ -41,6 +42,7 @@ impl FromStr for Grid {
             ]
             .into_iter()
             .collect(),
+            last_round: HashSet::new(),
         })
     }
 }
@@ -100,7 +102,7 @@ impl Grid {
         self.preferences.push_back(dir);
     }
 
-    pub fn motion(&mut self) {
+    pub fn motion(&mut self) -> bool {
         let grid = self
             .elves
             .iter()
@@ -129,7 +131,10 @@ impl Grid {
             }
             xs.insert(key);
         }
+        self.last_round = self.elves.clone();
         self.elves = xs;
+
+        self.elves == self.last_round
     }
 
     pub fn bounding_box(&self) -> (i32, i32, i32, i32) {
@@ -253,6 +258,18 @@ mod tests {
 
         assert_eq!(110, empties);
 
+        Ok(())
+    }
+
+    #[test]
+    fn example_rounds_until_convergence() -> Result<()> {
+        let mut grid = Grid::from_str(&std::fs::read_to_string("example/0.txt")?)?;
+        let mut rounds = 1;
+        while !grid.motion() {
+            grid.rotate_preferences();
+            rounds += 1;
+        }
+        assert_eq!(20, rounds);
         Ok(())
     }
 }
