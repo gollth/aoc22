@@ -1,0 +1,14 @@
+[package]
+name = "christmas-eve"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.69"
+clap = { version = "4.1.8", features = ["derive"] }
+colors-transform = "0.2.11"
+euclid = "0.22.7"
+itertools = "0.10.5"
+termion = "2.0.1"
