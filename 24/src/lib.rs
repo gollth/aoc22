@@ -6,7 +6,6 @@ use std::{
     fmt::Display,
     iter::once,
     rc::Rc,
-    str::FromStr,
 };
 
 use anyhow::{anyhow, Result};
@@ -67,6 +66,9 @@ impl Ord for Possibility {
     }
 }
 impl Possibility {
+    pub fn time(&self) -> usize {
+        self.time
+    }
     fn heureristic(&self) -> i32 {
         self.time as i32 + self.manhattan()
     }
@@ -99,8 +101,8 @@ impl Possibility {
 }
 
 pub struct State {
-    possibility: Rc<Possibility>,
-    valley: Rc<Valley>,
+    pub possibility: Rc<Possibility>,
+    pub valley: Rc<Valley>,
 }
 
 impl Display for State {
@@ -176,12 +178,11 @@ impl Display for State {
     }
 }
 
-pub fn find_shortest_path(input: &str) -> Result<Vec<State>> {
-    let valley = Rc::new(Valley::from_str(input)?);
+pub fn find_shortest_path(start: Coord, target: Coord, valley: Rc<Valley>) -> Result<Vec<State>> {
     let entry = Rc::new(Possibility {
         time: 0,
-        coord: valley.entry(),
-        target: valley.exit(),
+        coord: start,
+        target: target,
         parent: None,
     });
     let mut seen = HashSet::new();
@@ -200,8 +201,7 @@ pub fn find_shortest_path(input: &str) -> Result<Vec<State>> {
             }
             let valley = &valleys[option.time];
 
-            if valley.exit() == option.coord {
-                // println!("");
+            if target == option.coord {
                 return Ok(reconstruct_path(option, &valleys));
             }
             if !valley.inside(&option.coord) {
@@ -238,13 +238,14 @@ fn reconstruct_path(exit: Rc<Possibility>, valleys: &Vec<Rc<Valley>>) -> Vec<Sta
 
 #[cfg(test)]
 mod tests {
-    use std::cmp::Ordering;
+    use std::{cmp::Ordering, str::FromStr};
 
     use super::*;
 
     #[test]
     fn sample_requires_18_min_to_reach_exit() -> Result<()> {
-        let path = find_shortest_path(&std::fs::read_to_string("sample.txt")?)?;
+        let valley = Rc::new(Valley::from_str(&std::fs::read_to_string("sample.txt")?)?);
+        let path = find_shortest_path(valley.entry(), valley.exit(), valley)?;
         let exit = &path.last().unwrap().possibility;
         assert_eq!(18, exit.time);
         assert_eq!(path[0].valley.exit(), exit.coord);
@@ -253,7 +254,8 @@ mod tests {
 
     #[test]
     fn sample_solution_has_continuous_path() -> Result<()> {
-        let path = find_shortest_path(&std::fs::read_to_string("sample.txt")?)?;
+        let valley = Rc::new(Valley::from_str(&std::fs::read_to_string("sample.txt")?)?);
+        let path = find_shortest_path(valley.entry(), valley.exit(), valley)?;
 
         for (time, (actual, expected)) in path
             .into_iter()
@@ -322,5 +324,32 @@ mod tests {
         assert_eq!(c1.cmp(&c3), Ordering::Greater);
         assert_eq!(c2.cmp(&c3), Ordering::Greater);
         assert_eq!(c1.cmp(&c4), Ordering::Equal);
+    }
+
+    #[test]
+    fn sample_requires_54_min_to_reach_exit_entry_and_exit_again() -> Result<()> {
+        let mut time = 0;
+        let valley = Rc::new(Valley::from_str(&std::fs::read_to_string("sample.txt")?)?);
+        let path = find_shortest_path(valley.entry(), valley.exit(), valley)?;
+        let checkpoint = &path.last().unwrap();
+        time += checkpoint.possibility.time;
+
+        let valley = checkpoint.valley.clone();
+        let path = find_shortest_path(valley.exit(), valley.entry(), valley)?;
+        let checkpoint = &path.last().unwrap();
+        assert_eq!(23, checkpoint.possibility.time);
+
+        time += checkpoint.possibility.time;
+
+        let valley = checkpoint.valley.clone();
+        let path = find_shortest_path(valley.entry(), valley.exit(), valley)?;
+        let checkpoint = &path.last().unwrap();
+        assert_eq!(13, checkpoint.possibility.time);
+
+        time += checkpoint.possibility.time;
+
+        assert_eq!(54, time);
+
+        Ok(())
     }
 }
