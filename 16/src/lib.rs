@@ -1,102 +1,204 @@
-use std::str::FromStr;
+pub mod network;
+pub mod valve;
 
 use anyhow::{anyhow, Result};
-use nom::{
-    branch::alt,
-    bytes::complete::tag,
-    character::complete::{alpha1, u32},
-    combinator::map,
-    multi::separated_list1,
-    sequence::{preceded, tuple},
-    Finish, IResult,
+use std::{
+    collections::{HashSet, VecDeque},
+    fmt::Display,
+    iter::once,
 };
 
-#[derive(PartialEq, Eq, Debug)]
-struct Valve {
-    name: String,
-    flow: u32,
-    connections: Vec<String>,
+use crate::network::Network;
+
+pub type Cost = i32;
+pub type Name = String;
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+struct State<'a> {
+    network: &'a Network,
+    time: i32,
+    valve: String,
+    pressure: i32,
+    open: HashSet<Name>,
 }
 
-impl Valve {
-    fn new(name: &str, flow: u32, connections: Vec<&str>) -> Self {
+impl<'a> State<'a> {
+    fn simulate(&self) -> i32 {
+        self.open.iter().map(|v| self.network.get(v).flow()).sum()
+    }
+    fn stay(&self) -> Self {
         Self {
-            name: name.to_owned(),
-            flow,
-            connections: connections.into_iter().map(String::from).collect(),
+            network: self.network,
+            time: self.time + 1,
+            valve: self.valve.clone(),
+            pressure: self.simulate(),
+            open: self.open.clone(),
         }
+    }
+    fn travel_to(&self, valve: &str) -> Self {
+        Self {
+            network: self.network,
+            time: self.time + 1,
+            valve: valve.to_owned(),
+            pressure: self.simulate(),
+            open: self.open.clone(),
+        }
+    }
+    fn travel_to_and_open(&self, valve: &str) -> Self {
+        Self {
+            network: self.network,
+            time: self.time + 2,
+            valve: valve.to_owned(),
+            pressure: self.simulate(),
+            open: self
+                .open
+                .iter()
+                .cloned()
+                .chain(once(valve.to_owned()))
+                .collect(),
+        }
+    }
+    pub fn initial(network: &'a Network, valve: &str) -> Self {
+        Self {
+            network,
+            pressure: 0,
+            open: once(valve.to_owned()).collect(),
+            valve: valve.to_owned(),
+            time: 0,
+        }
+    }
+
+    fn possibilities(&self) -> Vec<Self> {
+        let mut options = Vec::new();
+        for connection in self.network.get(&self.valve).connections().into_iter() {
+            if self.time < 29
+                && !self.open.contains(&connection)
+                && self.network.get(&connection).flow() > 0
+            {
+                options.push(self.travel_to_and_open(&connection));
+            }
+            if self.time < 30 {
+                options.push(self.travel_to(&connection));
+            }
+        }
+        if options.is_empty() {
+            options.push(self.stay());
+        }
+        options
+    }
+
+    pub fn best(&self) -> (Name, i32) {
+        let mut max = self.pressure;
+        let mut candidate = self.valve.clone();
+        let mut queue = Vec::from([self.clone()]);
+        while let Some(item) = queue.pop() {
+            if item.time >= 30 {
+                if item.pressure > max {
+                    max = item.pressure;
+                    candidate = item.valve.clone();
+                    println!(
+                        "Found probably path to {}, p={}, queue={}, open={:?}",
+                        item.valve,
+                        item.pressure,
+                        queue.len(),
+                        item.open
+                    );
+                }
+                continue;
+            }
+            queue.extend(item.possibilities());
+        }
+        (candidate, max)
     }
 }
 
-impl From<(&str, u32, Vec<&str>)> for Valve {
-    fn from((name, flow, connections): (&str, u32, Vec<&str>)) -> Self {
-        Self::new(name, flow, connections)
+impl<'a> Display for State<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "t={}min Valve {}, total pressure {} hPa",
+            self.time, self.valve, self.pressure
+        )?;
+        for x in self.open.iter() {
+            writeln!(f, "  - {x} releasing {} hPa", self.network.get(x).flow())?;
+        }
+        Ok(())
     }
 }
 
-impl FromStr for Valve {
-    type Err = anyhow::Error;
+pub fn find_max_releasable_pressure(network: &Network, steps: i32) -> Result<i32> {
+    let state = State::initial(network, "AA");
+    let best = state.best();
+    println!("Best = {:?}", best);
+    Ok(best.1)
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        fn parse(s: &str) -> IResult<&str, Valve> {
-            map(
-                tuple((
-                    preceded(tag("Valve "), alpha1),
-                    preceded(tag(" has flow rate="), u32),
-                    preceded(
-                        alt((
-                            tag("; tunnel leads to valve "),
-                            tag("; tunnels lead to valves "),
-                        )),
-                        separated_list1(tag(", "), alpha1),
-                    ),
-                )),
-                Valve::from,
-            )(s)
-        }
-        Ok(parse(s)
-            .finish()
-            .map_err(|e| anyhow!("{}", e.to_string()))?
-            .1)
-    }
+    // println!("{:?}", state.best_option()?);
+
+    // Err(anyhow!("Could not find solution"))
 }
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
+    use anyhow::Result;
+    use std::str::FromStr;
+
     #[test]
-    fn valve_from_str() -> Result<()> {
-        let valve = Valve::from_str("Valve A has flow rate=42; tunnels lead to valves B, C, D")?;
-        assert_eq!("A", valve.name);
-        assert_eq!(42, valve.flow);
-        assert_eq!(vec!["B", "C", "D"], valve.connections);
+    fn sample_state_possibilities_from_a() -> Result<()> {
+        let sample = std::fs::read_to_string("sample.txt")?;
+        let network = Network::from_str(&sample)?;
+        let start = State::initial(&network, "AA");
+        let options = start
+            .possibilities()
+            .into_iter()
+            .map(|state| state.valve)
+            .collect::<HashSet<_>>();
+        assert_eq!(3, options.len());
+        assert!(options.contains("BB"), "BB");
+        assert!(options.contains("DD"), "DD");
+        assert!(options.contains("II"), "II");
         Ok(())
     }
 
     #[test]
-    fn valve_from_str_sample() -> Result<()> {
+    fn sample_state_possibilities_from_b() -> Result<()> {
         let sample = std::fs::read_to_string("sample.txt")?;
-        let valves = sample
-            .lines()
-            .map(Valve::from_str)
-            .collect::<Result<Vec<_>>>()?;
+        let network = Network::from_str(&sample)?;
+        let a = State::initial(&network, "AA");
+        let b = a
+            .possibilities()
+            .into_iter()
+            .find(|state| state.valve == "BB")
+            .unwrap();
+        let options = b
+            .possibilities()
+            .into_iter()
+            .map(|state| (state.valve, state.pressure))
+            .collect::<HashSet<_>>();
+        println!("{:?}", options);
+        assert!(options.contains(&("CC".to_string(), 13)));
+        assert_eq!(1, options.len());
+        Ok(())
+    }
 
-        let expectations = vec![
-            Valve::new("AA", 0, vec!["DD", "II", "BB"]),
-            Valve::new("BB", 13, vec!["CC", "AA"]),
-            Valve::new("CC", 2, vec!["DD", "BB"]),
-            Valve::new("DD", 20, vec!["CC", "AA", "EE"]),
-            Valve::new("EE", 3, vec!["FF", "DD"]),
-            Valve::new("FF", 0, vec!["EE", "GG"]),
-            Valve::new("GG", 0, vec!["FF", "HH"]),
-            Valve::new("HH", 22, vec!["GG"]),
-            Valve::new("II", 0, vec!["AA", "JJ"]),
-            Valve::new("JJ", 21, vec!["II"]),
-        ];
+    #[test]
+    fn foo() -> Result<()> {
+        let sample = std::fs::read_to_string("sample.txt")?;
+        let network = Network::from_str(&sample)?;
+        let a = State::initial(&network, "AA");
+        assert_eq!(1, a.best());
+        Ok(())
+    }
 
-        assert_eq!(expectations, valves);
-
+    #[test]
+    #[ignore]
+    fn sample_can_release_max_1651_in_30min() -> Result<()> {
+        let sample = std::fs::read_to_string("sample.txt")?;
+        let network = Network::from_str(&sample)?;
+        let solution = find_max_releasable_pressure(&network, 30)?;
+        assert_eq!(1651, solution);
         Ok(())
     }
 }
